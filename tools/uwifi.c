@@ -106,7 +106,8 @@ static void usage(const char *argv0) {
             "  -t, --dwell MS        time per channel (default %d)\n"
             "  -T, --duration S      stop after S seconds\n"
             "  -w, --pcap FILE       write radiotap pcap; '-' for stdout\n"
-            "  -C, --country CC      regulatory country to report to the driver\n"
+            "  -C, --country CC      regulatory country to report to the driver; mm8108: the\n"
+            "                        region to boot with, unless the adapter locks its own\n"
             "  -v, --verbose         driver debug logging\n"
             "Inject options:\n"
             "  -n, --count N         frames to send (default 10; 0 to send until stopped)\n"
@@ -576,6 +577,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     uwifi_set_firmware_choice(fw_name, bcf_name);
+    uwifi_set_country_choice(country);
 
     if (uwifi_init(paths, n_paths, verbose ? 7 : 4) < 0) {
         fprintf(stderr, "could not initialize USB\n");

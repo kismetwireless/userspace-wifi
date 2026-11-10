@@ -41,6 +41,8 @@ struct ieee80211_hw *kc_mac80211_wait_hw(struct device *parent, unsigned int tim
 
 /* Sets the regulatory country the driver is notified of; "00" is the world domain */
 int kc_mac80211_set_regdomain(struct ieee80211_hw *hw, const char *alpha2);
+/* The regulatory country last set; NULL if none was */
+const char *kc_mac80211_get_regdomain(struct ieee80211_hw *hw);
 
 /* Status of an injected frame: data is the 802.11 frame, valid only during the call */
 typedef void (*kc_mac80211_tx_status_cb_t)(void *ctx, struct ieee80211_hw *hw, const u8 *data, size_t len,

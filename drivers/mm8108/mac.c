@@ -911,8 +911,9 @@ static int mm_mac_boot(struct mm_mac *m) {
     if ((r = mm_read_chip_id(&m->dev)) < 0 || (r = mm_read_otp(&m->dev)) < 0)
         return r;
 
-    /* The OTP country locks the regulatory domain */
-    country = m->dev.otp_country[0] ? m->dev.otp_country : "US";
+    /* The OTP country locks the regulatory domain; without one, the user's choice or US */
+    country = m->dev.otp_country[0] ? m->dev.otp_country :
+        kc_country_choice() ? kc_country_choice() : "US";
     if ((m->region = mm_s1g_region(country)) == NULL) {
         dev_err(&m->intf->dev, "no 802.11ah channels for country %s", country);
         return -EINVAL;
@@ -1014,6 +1015,8 @@ static int mm_mac_probe(struct usb_interface *intf, const struct usb_device_id *
     }
 
     kc_mac80211_set_chanmap_cb(hw, mm_mac_print_chanmap);
+    /* The region the chip booted with, which a later regulatory change doesn't move */
+    kc_mac80211_set_regdomain(hw, m->region->country);
     return 0;
 }
 
