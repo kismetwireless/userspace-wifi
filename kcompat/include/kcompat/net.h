@@ -112,7 +112,6 @@ static inline void u64_to_ether_addr(u64 u, u8 *a) {
 #define eth_type_trans(skb, dev) ((__be16) 0)
 static inline int skb_network_offset(const struct sk_buff *skb) { (void) skb; return 0; }
 static inline u8 *skb_network_header(const struct sk_buff *skb) { return skb->data; }
-static inline u8 *skb_mac_header(const struct sk_buff *skb) { return skb->data; }
 static inline u8 *skb_transport_header(const struct sk_buff *skb) { return skb->data; }
 
 struct netdev_hw_addr_list;

@@ -214,6 +214,12 @@ int kc_mac80211_set_regdomain(struct ieee80211_hw *hw, const char *alpha2) {
     return 0;
 }
 
+const char *kc_mac80211_get_regdomain(struct ieee80211_hw *hw) {
+    const struct ieee80211_local *local = hw_to_local(hw);
+
+    return local->alpha2[0] != 0 ? local->alpha2 : NULL;
+}
+
 /* Work queued by the driver runs on the hw's ordered workqueue */
 struct ieee80211_local *kc_vif_to_local(struct ieee80211_vif *vif) {
     struct ieee80211_local *local, *found = NULL;

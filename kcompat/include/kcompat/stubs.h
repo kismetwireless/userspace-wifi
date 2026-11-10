@@ -330,6 +330,10 @@ int kc_firmware_request_in(const struct firmware **fw, const char *const *names,
 void kc_firmware_set_choice(const char *firmware, const char *boardfile);
 const char *kc_firmware_choice(void);
 const char *kc_firmware_board_choice(void);
+/* Regulatory country the user chose, for drivers that fix it when firmware loads; NULL for
+ * the driver's own */
+void kc_set_country_choice(const char *alpha2);
+const char *kc_country_choice(void);
 
 /* Misc */
 #define kallsyms_lookup_name(n) 0

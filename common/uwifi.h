@@ -50,6 +50,9 @@ void uwifi_exit(void);
 /* Firmware and board config file names to load instead of the driver's choice, for drivers
  * that take them (mm8108); NULL for the driver's own.  Set before opening an adapter. */
 void uwifi_set_firmware_choice(const char *firmware, const char *boardfile);
+/* Regulatory country for drivers that fix it when firmware loads (mm8108), where the adapter
+ * doesn't lock its own; NULL for the driver's default.  Set before opening an adapter. */
+void uwifi_set_country_choice(const char *alpha2);
 
 /* Sends driver log messages to cb instead of stderr */
 void uwifi_set_log_cb(void (*cb)(void *ctx, int level, const char *msg), void *ctx);
@@ -78,6 +81,8 @@ const struct ieee80211_channel *uwifi_find_chan(struct uwifi_dev *dev, enum nl80
 bool uwifi_band_width_ok(struct uwifi_dev *dev, enum nl80211_band band, enum nl80211_chan_width width);
 const struct uwifi_dev_info *uwifi_info(struct uwifi_dev *dev);
 const char *uwifi_product(struct uwifi_dev *dev);
+/* The regulatory country the adapter uses or was set to; NULL if none */
+const char *uwifi_country(struct uwifi_dev *dev);
 
 /* Writes bands, channels, rates, HT/VHT/HE capabilities and widths */
 void uwifi_print_caps(struct uwifi_dev *dev, FILE *out);

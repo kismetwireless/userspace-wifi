@@ -73,6 +73,10 @@ void uwifi_set_firmware_choice(const char *firmware, const char *boardfile) {
     kc_firmware_set_choice(firmware, boardfile);
 }
 
+void uwifi_set_country_choice(const char *alpha2) {
+    kc_set_country_choice(alpha2);
+}
+
 static const char *uwifi_speed_name(int speed) {
     switch (speed) {
         case USB_SPEED_LOW:
@@ -280,6 +284,10 @@ void uwifi_close(struct uwifi_dev *dev) {
 
 struct ieee80211_hw *uwifi_hw(struct uwifi_dev *dev) {
     return dev->hw;
+}
+
+const char *uwifi_country(struct uwifi_dev *dev) {
+    return kc_mac80211_get_regdomain(dev->hw);
 }
 
 const u8 *uwifi_mac(struct uwifi_dev *dev) {

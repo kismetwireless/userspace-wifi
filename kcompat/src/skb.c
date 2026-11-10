@@ -101,8 +101,10 @@ void page_pool_put_full_page(struct page_pool *pool, struct page *page, bool all
 /* sk_buff */
 static struct sk_buff *kc_skb_new(void) {
     struct sk_buff *skb = calloc(1, sizeof(*skb));
-    if (skb)
+    if (skb) {
         refcount_set(&skb->users, 1);
+        skb->mac_header = KC_SKB_NO_MAC_HEADER;
+    }
     return skb;
 }
 
@@ -233,6 +235,8 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail, gfp_t gfp) {
     skb->data = n + headroom + nhead;
     skb->tail = skb->data + headlen;
     skb->end = n + size;
+    if (skb_mac_header_was_set(skb))
+        skb->mac_header += (u16) nhead;
     return 0;
 }
 
@@ -404,6 +408,7 @@ struct sk_buff *skb_copy(const struct sk_buff *skb, gfp_t gfp) {
     n->queue_mapping = skb->queue_mapping;
     n->protocol = skb->protocol;
     n->dev = skb->dev;
+    n->mac_header = skb->mac_header;
     return n;
 }
 
@@ -423,6 +428,12 @@ struct sk_buff *skb_copy_expand(const struct sk_buff *skb, int headroom, int tai
         return NULL;
     }
     memcpy(n->cb, skb->cb, sizeof(n->cb));
+    /* The header keeps its place relative to the data, if that's inside the new buffer */
+    if (skb_mac_header_was_set(skb)) {
+        long off = (long) skb->mac_header - (long) skb_headroom(skb) + headroom;
+        if (off >= 0 && off < n->end - n->head)
+            n->mac_header = (u16) off;
+    }
     return n;
 }
 

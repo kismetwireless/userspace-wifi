@@ -346,7 +346,7 @@ void *idr_get_next(const struct idr *idr, int *nextid) {
 #define KC_FW_PATH_LEN 256
 static char *kc_fw_paths[KC_FW_MAX_PATHS];
 static size_t kc_fw_npaths, kc_fw_nhost;
-static char *kc_fw_choice, *kc_fw_board_choice;
+static char *kc_fw_choice, *kc_fw_board_choice, *kc_country;
 
 static void kc_firmware_add_path(const char *path) {
     if (kc_fw_npaths < KC_FW_MAX_PATHS && (kc_fw_paths[kc_fw_npaths] = strdup(path)) != NULL)
@@ -433,6 +433,14 @@ const char *kc_firmware_choice(void) {
 
 const char *kc_firmware_board_choice(void) {
     return kc_fw_board_choice;
+}
+
+void kc_set_country_choice(const char *alpha2) {
+    kc_set_name(&kc_country, alpha2 != NULL && strlen(alpha2) == 2 ? alpha2 : NULL);
+}
+
+const char *kc_country_choice(void) {
+    return kc_country;
 }
 
 /* Each directory in turn, each name in it, as named and then in each compressed form */
