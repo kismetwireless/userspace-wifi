@@ -45,6 +45,8 @@ struct uwifi_dev_info {
 /* Firmware directories are searched in order for driver firmware paths, then on Linux the
  * system firmware directories */
 int uwifi_init(const char *const *fw_paths, size_t n_paths, int log_level);
+/* Stops the USB event thread; call once every device is closed */
+void uwifi_exit(void);
 /* Firmware and board config file names to load instead of the driver's choice, for drivers
  * that take them (mm8108); NULL for the driver's own.  Set before opening an adapter. */
 void uwifi_set_firmware_choice(const char *firmware, const char *boardfile);
@@ -69,6 +71,9 @@ struct ieee80211_hw *uwifi_hw(struct uwifi_dev *dev);
 const u8 *uwifi_mac(struct uwifi_dev *dev);
 /* False once the adapter has been unplugged or stopped responding */
 bool uwifi_alive(struct uwifi_dev *dev);
+/* An enabled channel in the band, by channel number */
+const struct ieee80211_channel *uwifi_find_chan(struct uwifi_dev *dev, enum nl80211_band band,
+        int channel);
 /* The band exists and supports the width */
 bool uwifi_band_width_ok(struct uwifi_dev *dev, enum nl80211_band band, enum nl80211_chan_width width);
 const struct uwifi_dev_info *uwifi_info(struct uwifi_dev *dev);

@@ -685,6 +685,7 @@ int main(int argc, char *argv[]) {
 
 out:
     uwifi_close(dev);
+    uwifi_exit();
     uwifi_pcap_close(cap.pcap);
     uwifi_pcap_close(inj.pcap);
     free(cap.hops);
