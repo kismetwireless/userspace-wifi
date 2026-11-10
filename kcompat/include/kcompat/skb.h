@@ -190,6 +190,8 @@ struct sk_buff {
     u8 *data;
     u8 *tail;
     u8 *end;
+    /* Offset of the 802.11 header from head, or KC_SKB_NO_MAC_HEADER */
+    u16 mac_header;
     /* head is page_pool or page memory rather than kmalloc */
     bool head_frag;
     struct skb_shared_info shinfo;
@@ -322,9 +324,19 @@ static inline int skb_cow_head(struct sk_buff *skb, unsigned int headroom) {
 static inline u16 skb_get_queue_mapping(const struct sk_buff *skb) { return skb->queue_mapping; }
 static inline void skb_set_queue_mapping(struct sk_buff *skb, u16 q) { skb->queue_mapping = q; }
 static inline void skb_mark_for_recycle(struct sk_buff *skb) { (void) skb; }
-static inline void skb_reset_mac_header(struct sk_buff *skb) { (void) skb; }
+#define KC_SKB_NO_MAC_HEADER ((u16) ~0U)
+static inline bool skb_mac_header_was_set(const struct sk_buff *skb) {
+    return skb->mac_header != KC_SKB_NO_MAC_HEADER;
+}
+static inline void skb_reset_mac_header(struct sk_buff *skb) { skb->mac_header = (u16) (skb->data - skb->head); }
 static inline void skb_reset_tail_pointer(struct sk_buff *skb) { skb->tail = skb->data; }
-static inline void skb_set_mac_header(struct sk_buff *skb, int o) { (void) skb; (void) o; }
+static inline void skb_set_mac_header(struct sk_buff *skb, int o) {
+    skb->mac_header = (u16) (skb->data - skb->head + o);
+}
+/* Unset, it's the data, as drivers that never set it expect */
+static inline u8 *skb_mac_header(const struct sk_buff *skb) {
+    return skb_mac_header_was_set(skb) ? skb->head + skb->mac_header : skb->data;
+}
 static inline void skb_reset_network_header(struct sk_buff *skb) { (void) skb; }
 static inline void skb_reset_transport_header(struct sk_buff *skb) { (void) skb; }
 static inline void skb_set_network_header(struct sk_buff *skb, int o) { (void) skb; (void) o; }

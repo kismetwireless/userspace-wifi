@@ -114,7 +114,26 @@ ieee80211_rx_radiotap_hdrlen(struct ieee80211_local *local,
 		len += 2 * hweight8(status->chains);
 	}
 
-	(void) skb;
+	if (status->flag & RX_FLAG_RADIOTAP_TLV_AT_END) {
+		int tlv_offset = 0;
+
+		/* kismet: the driver's VHT field also sits in front of the TLVs */
+		if (status->flag & RX_FLAG_RADIOTAP_VHT)
+			tlv_offset += sizeof(struct ieee80211_radiotap_vht);
+		if (status->flag & RX_FLAG_RADIOTAP_HE)
+			tlv_offset += sizeof(struct ieee80211_radiotap_he);
+		if (status->flag & RX_FLAG_RADIOTAP_HE_MU)
+			tlv_offset += sizeof(struct ieee80211_radiotap_he_mu);
+		if (status->flag & RX_FLAG_RADIOTAP_LSIG)
+			tlv_offset += sizeof(struct ieee80211_radiotap_lsig);
+
+		/* ensure 4 byte alignment for TLV */
+		len = ALIGN(len, 4);
+
+		/* TLVs until the mac header */
+		len += skb_mac_header(skb) - &skb->data[tlv_offset];
+	}
+
 	return len;
 }
 
@@ -132,6 +151,7 @@ ieee80211_add_rx_radiotap_header(struct ieee80211_local *local,
 	u16 rx_flags = 0;
 	u16 channel_flags = 0;
 	int mpdulen;
+	int tlvs_len = 0;
 	unsigned long chain;
 	unsigned long chains = status->chains;
 	struct ieee80211_radiotap_vht vht = {};
@@ -161,13 +181,17 @@ ieee80211_add_rx_radiotap_header(struct ieee80211_local *local,
 		skb_pull(skb, sizeof(lsig));
 	}
 
+	if (status->flag & RX_FLAG_RADIOTAP_TLV_AT_END)
+		tlvs_len = skb_mac_header(skb) - skb->data;
+
 	/* kismet: has_fcs is decided per frame by kc_mac80211_deliver() */
-	mpdulen = skb->len;
+	mpdulen = skb->len - tlvs_len;
 	if (!has_fcs)
 		mpdulen += FCS_LEN;
 
-	rthdr = skb_push(skb, rtap_len);
-	memset(rthdr, 0, rtap_len);
+	/* The TLVs are already in place at the end of the header */
+	rthdr = skb_push(skb, rtap_len - tlvs_len);
+	memset(rthdr, 0, rtap_len - tlvs_len);
 	it_present = &rthdr->it_present;
 
 	/* radiotap header, set always present flags */
@@ -178,6 +202,10 @@ ieee80211_add_rx_radiotap_header(struct ieee80211_local *local,
 
 	if (!status->chains)
 		it_present_val |= BIT(IEEE80211_RADIOTAP_ANTENNA);
+
+	/* kismet: in the first presence word, where radiotap readers look for it */
+	if (tlvs_len)
+		it_present_val |= BIT(IEEE80211_RADIOTAP_TLV);
 
 	for_each_set_bit(chain, &chains, IEEE80211_MAX_CHAINS) {
 		it_present_val |=
@@ -570,6 +598,17 @@ void kc_mac80211_deliver(struct ieee80211_local *local, struct sk_buff *skb) {
 
     if ((unsigned int) driver_rtap > skb->len)
         goto out;
+
+    /* TLVs follow the driver's fields up to the 802.11 header, padded to 4 */
+    int tlvs = 0;
+    if (status->flag & RX_FLAG_RADIOTAP_TLV_AT_END) {
+        if (!skb_mac_header_was_set(skb))
+            goto out;
+        tlvs = (int) (skb_mac_header(skb) - (skb->data + driver_rtap));
+        if (tlvs < 0 || tlvs > (int) skb->len - driver_rtap || (tlvs & 3) != 0)
+            goto out;
+        driver_rtap += tlvs;
+    }
 
     bool has_fcs = ieee80211_hw_check(&local->hw, RX_INCLUDES_FCS);
 
