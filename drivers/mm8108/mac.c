@@ -25,8 +25,9 @@
  * wider channels tune the S1G channel itself.
  *
  * With a station interface, frames are converted between 802.11ah and the 802.11n/ac
- * frames mac80211 expects (mm_s1g.h), and NDP frames are dropped; a monitor interface alone
- * gets the frames as sent.
+ * frames mac80211 expects (mm_s1g.h); a monitor interface alone gets the frames as sent,
+ * with radiotap TLVs for the S1G PHY and the frequency in kHz, as morse_driver's monitor
+ * interface reports them.  NDP frames carry SIG fields rather than a frame and are dropped.
  * A thread services the chip: interrupts, received frames, TX status and the TX queue. */
 
 #include <dirent.h>
@@ -357,6 +358,74 @@ static void mm_mac_tx_drain(struct mm_mac *m) {
     }
 }
 
+/* Radiotap TLVs, from morse_driver s1g_radiotap.h and vendor.h */
+#define MM_RT_TLV_S1G           32
+#define MM_RT_TLV_VENDOR        30
+#define MM_RT_S1G_LEN           6
+#define MM_RT_VENDOR_LEN        12
+#define MM_RT_TLVS_LEN          (4 + 8 + 4 + MM_RT_VENDOR_LEN)
+
+#define MM_S1G_KNOWN_PPDU       0x0001
+#define MM_S1G_KNOWN_RI         0x0002
+#define MM_S1G_KNOWN_GI         0x0004
+#define MM_S1G_KNOWN_NSS        0x0008
+#define MM_S1G_KNOWN_BW         0x0010
+#define MM_S1G_KNOWN_MCS        0x0020
+#define MM_S1G_KNOWN_COLOR      0x0040
+#define MM_S1G_KNOWN_UPLINK     0x0080
+
+#define MM_S1G_PPDU_1M          0
+#define MM_S1G_PPDU_SHORT       1
+#define MM_S1G_PPDU_LONG        2
+
+static const uint8_t mm_morse_oui[3] = { 0x0C, 0xBF, 0x74 };
+#define MM_MORSE_VENDOR_FREQ_KHZ 35
+
+/* The S1G TLV and Morse Micro's frequency TLV, padded to 4 */
+static void mm_mac_rx_tlvs(const struct mm_rx_status *st, uint8_t *p) {
+    const unsigned int preamble = MM_RATECODE_PREAMBLE(st->ratecode);
+    uint16_t known = MM_S1G_KNOWN_RI | MM_S1G_KNOWN_COLOR | MM_S1G_KNOWN_UPLINK;
+    uint16_t data1 = (uint16_t) (MM_RX_FLAG_RI(st->flags) << 2);
+    const uint16_t data2 = (uint16_t) ((st->bss_color & 0x7) |
+            ((st->flags & MM_RX_FLAG_UPLINK) ? 0x8 : 0) | ((uint16_t) (uint8_t) st->rssi << 8));
+
+    memset(p, 0, MM_RT_TLVS_LEN);
+
+    /* Rate details only apply to S1G preambles */
+    if (preamble == MM_PREAMBLE_S1G_LONG || preamble == MM_PREAMBLE_S1G_SHORT ||
+            preamble == MM_PREAMBLE_S1G_1M) {
+        const unsigned int ppdu = preamble == MM_PREAMBLE_S1G_LONG ? MM_S1G_PPDU_LONG :
+            preamble == MM_PREAMBLE_S1G_1M ? MM_S1G_PPDU_1M : MM_S1G_PPDU_SHORT;
+        const unsigned int bw = MM_RATECODE_BW_IDX(st->ratecode);
+
+        known |= MM_S1G_KNOWN_PPDU | MM_S1G_KNOWN_GI | MM_S1G_KNOWN_NSS | MM_S1G_KNOWN_MCS;
+        data1 |= (uint16_t) (ppdu & 0x3);
+        data1 |= (uint16_t) (MM_RATECODE_SGI(st->ratecode) << 5);
+        data1 |= (uint16_t) (((MM_RATECODE_NSS(st->ratecode) - 1) & 0x3) << 6);
+        data1 |= (uint16_t) (MM_RATECODE_MCS(st->ratecode) << 12);
+
+        /* 1, 2, 4, 8 and 16 MHz */
+        if (bw <= 4) {
+            known |= MM_S1G_KNOWN_BW;
+            data1 |= (uint16_t) (bw << 8);
+        }
+    }
+
+    mm_put_le16(p, MM_RT_TLV_S1G);
+    mm_put_le16(p + 2, MM_RT_S1G_LEN);
+    mm_put_le16(p + 4, known);
+    mm_put_le16(p + 6, data1);
+    mm_put_le16(p + 8, data2);
+
+    /* OUI, sub-namespace 0, vendor type, reserved, then the frequency */
+    p += 12;
+    mm_put_le16(p, MM_RT_TLV_VENDOR);
+    mm_put_le16(p + 2, MM_RT_VENDOR_LEN);
+    memcpy(p + 4, mm_morse_oui, sizeof(mm_morse_oui));
+    mm_put_le16(p + 8, MM_MORSE_VENDOR_FREQ_KHZ);
+    mm_put_le32(p + 12, st->freq_khz);
+}
+
 static void mm_mac_rx(void *ctx, const struct mm_rx_status *st, const uint8_t *frame, size_t len) {
     struct mm_mac *m = ctx;
     struct ieee80211_rx_status *status;
@@ -365,7 +434,7 @@ static void mm_mac_rx(void *ctx, const struct mm_rx_status *st, const uint8_t *f
     struct sk_buff *skb;
     int n = (int) len;
 
-    if (!m->started || m->rx_freq == 0)
+    if (!m->started || m->rx_freq == 0 || (st->flags & MM_RX_FLAG_NDP))
         return;
 
     if (st->flags & MM_RX_FLAG_FCS_INCLUDED) {
@@ -375,7 +444,7 @@ static void mm_mac_rx(void *ctx, const struct mm_rx_status *st, const uint8_t *f
     }
 
     if (m->sta_vif != NULL) {
-        if (bad || (st->flags & MM_RX_FLAG_NDP) || (n = mm_s1g_rx(&m->conv, m->pri1, frame, (size_t) n, m->rx_buf,
+        if (bad || (n = mm_s1g_rx(&m->conv, m->pri1, frame, (size_t) n, m->rx_buf,
                         sizeof(m->rx_buf))) <= 0)
             return;
         frame = m->rx_buf;
@@ -388,6 +457,17 @@ static void mm_mac_rx(void *ctx, const struct mm_rx_status *st, const uint8_t *f
 
     status = IEEE80211_SKB_RXCB(skb);
     memset(status, 0, sizeof(*status));
+
+    /* As sent, the frame is S1G; say so, in front of the 802.11 header */
+    if (m->sta_vif == NULL) {
+        skb_reset_mac_header(skb);
+        mm_mac_rx_tlvs(st, skb_push(skb, MM_RT_TLVS_LEN));
+        status->flag |= RX_FLAG_RADIOTAP_TLV_AT_END;
+    }
+
+    /* The chip's timer at frame detection */
+    status->mactime = st->timestamp_us;
+    status->flag |= RX_FLAG_MACTIME_START;
     status->band = NL80211_BAND_5GHZ;
     /* A BSS heard off its primary is reported on its primary, as the frame describes it */
     status->freq = (u16) (m->sta_vif != NULL && m->conv.rx_pri_5g ?
