@@ -1,0 +1,7 @@
+Source: Mtk79ICAP userspace/libmt7921iq (the IQB2 stream decoder and its test)
+Tree:   https://github.com/MtkWifiRev/Mtk79ICAP
+Commit: 38221102d67191cfa129644b002a433afb44dae0
+License: MIT (see LICENSE)
+
+Copied unmodified, without its test; iqstream_ioctl.h comes from
+../../../drivers/mt76_icap/mt7921.
