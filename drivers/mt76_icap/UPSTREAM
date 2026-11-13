@@ -1,0 +1,14 @@
+Source: Mtk79ICAP driver/ (mt76 with ICAP I/Q streaming for the MT7921AU)
+Tree:   https://github.com/MtkWifiRev/Mtk79ICAP
+Commit: 38221102d67191cfa129644b002a433afb44dae0
+        (mt76 from openwrt/mt76 b2704cf5a4068b672bf47ad5bf6b4802b6770a90, plus the
+        I/Q changes)
+License: BSD-3-Clause-Clear (see LICENSE and the SPDX headers)
+
+Files are copied unmodified, only those the mt7921u driver builds, and built as-is
+against ../../kcompat and ../../mac80211 for the SDR build (make SDR=1) only; uwifi keeps
+the kernel's mt76 in ../mt76.  Refresh by copying the same files from a
+newer Mtk79ICAP.
+
+Local changes: mt7921/iqstream.c, mt7921_iqs_gain_clear_stale(), which releases a gain
+forced by an earlier process at stream open.

@@ -2,4 +2,7 @@
 *.d
 *.a
 /uwifi
+/usbsdr
+/libuwifisdrSupport.so
+/.build-flags
 *.pcap

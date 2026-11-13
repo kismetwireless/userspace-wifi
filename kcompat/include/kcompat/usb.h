@@ -192,6 +192,9 @@ struct urb {
     /* References, as the kernel's kref: the caller's, plus one while submitted */
     int kc_refs;
     bool kc_allocated;
+    /* Linear buffer standing in for the scatterlist of an sg transfer */
+    u8 *kc_bounce;
+    size_t kc_bounce_len;
 };
 
 struct usb_device_id {

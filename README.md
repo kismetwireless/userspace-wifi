@@ -166,6 +166,14 @@ name:
 | rtw88 USB | Linux v7.3-rc7 rtw88 plus two lwfinger/rtw88 fixes | RTL8812AU/8811AU, RTL8821AU, RTL8814AU, RTL8812BU/8822BU, RTL8812CU/8822CU, RTL8811CU/8821CU, RTL8723DU |
 | mm8108 | Kismet's libmm8108 (from morse_driver), with mac80211 glue | Morse Micro MM8108 802.11ah (325b:8100) |
 
+## SDR
+
+`make SDR=1` adds I/Q capture from MediaTek USB adapters as an SDR receiver: the `usbsdr`
+tool, a SoapySDR module and a GNU Radio block (see [SDR.md](SDR.md)).  The MT7921AU I/Q
+stream is the work of the [Mtk79ICAP](https://github.com/MtkWifiRev/Mtk79ICAP) project
+by the MtkWifiRev contributors: its mt76 driver with ICAP streaming, its IQB2 stream decoder
+and its firmware patch are used here under their licenses (credits in SDR.md).
+
 
 ## Adding a driver
 

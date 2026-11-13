@@ -522,8 +522,23 @@ struct module;
 #define MODULE_DEVICE_TABLE(type, name)
 #define MODULE_IMPORT_NS(ns)
 #define MODULE_PARM_DESC(p, d)
-#define module_param(name, type, perm)
-#define module_param_named(name, value, type, perm)
+/* Module parameters register by name, so the host can set them before probing */
+enum kc_param_type {
+    KC_PARAM_INT,
+    KC_PARAM_UINT,
+    KC_PARAM_BOOL,
+};
+void kc_param_register(const char *name, void *value, enum kc_param_type type);
+#define __kc_param_type_int KC_PARAM_INT
+#define __kc_param_type_uint KC_PARAM_UINT
+#define __kc_param_type_bool KC_PARAM_BOOL
+#define module_param_named(name, value, type, perm) \
+    static void __attribute__((constructor)) __kc_param_##name(void) { \
+        kc_param_register(#name, &(value), __kc_param_type_##type); }
+/* not through module_param_named, which would expand bool */
+#define module_param(name, type, perm) \
+    static void __attribute__((constructor)) __kc_param_##name(void) { \
+        kc_param_register(#name, &(name), __kc_param_type_##type); }
 #define module_init(fn) static void __attribute__((constructor)) __kc_init_##fn(void) { fn(); }
 #define module_exit(fn)
 

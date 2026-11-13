@@ -23,6 +23,13 @@
 #include <kcompat/kcompat.h>
 #include <kcompat/host.h>
 
+/* No scatter-gather unless the host turns it on; drivers then use linear buffers */
+static unsigned int kc_usb_sg_tablesize;
+
+void kc_usb_set_sg(unsigned int tablesize) {
+    kc_usb_sg_tablesize = tablesize;
+}
+
 static libusb_context *kc_usb_ctx;
 static pthread_t kc_usb_thread;
 static volatile bool kc_usb_running;
@@ -401,8 +408,9 @@ int kc_usb_probe_device(const struct kc_usb_probe_entry *entry, struct usb_inter
     udev->state = USB_STATE_CONFIGURED;
     snprintf(udev->devpath, sizeof(udev->devpath), "%s", entry->path);
     udev->bus = &udev->kc_bus;
-    /* No scatter-gather; drivers use linear buffers */
-    udev->kc_bus.sg_tablesize = 0;
+    /* Scatter-gather, when the host asks for it, goes through a linear bounce buffer */
+    udev->kc_bus.sg_tablesize = kc_usb_sg_tablesize;
+    udev->kc_bus.no_sg_constraint = kc_usb_sg_tablesize > 0;
     kc_device_init(&udev->dev, NULL, entry->path);
     INIT_WORK(&udev->kc_reset_work, kc_usb_reset_work);
 
@@ -662,6 +670,9 @@ static void kc_urb_release(struct urb *urb) {
 
     if (urb->transfer_flags & URB_FREE_BUFFER)
         free(urb->transfer_buffer);
+    free(urb->kc_bounce);
+    urb->kc_bounce = NULL;
+    urb->kc_bounce_len = 0;
 
     if (urb->kc_allocated) {
         pthread_mutex_destroy(&urb->kc_lock);
@@ -724,11 +735,49 @@ static int kc_urb_status(const struct libusb_transfer *x, const struct urb *urb)
     }
 }
 
+/* Between an sg transfer's scatterlist and its bounce buffer */
+static void kc_urb_scatter(struct urb *urb) {
+    struct scatterlist *sg = urb->sg;
+    size_t done = 0;
+
+    for (int i = 0; i < urb->num_sgs && sg != NULL && done < urb->actual_length; i++, sg = sg_next(sg)) {
+        size_t n = sg->length < urb->actual_length - done ? sg->length : urb->actual_length - done;
+
+        memcpy(sg_virt(sg), urb->kc_bounce + done, n);
+        done += n;
+    }
+}
+
+static int kc_urb_gather(struct urb *urb) {
+    struct scatterlist *sg = urb->sg;
+    size_t done = 0, len = urb->transfer_buffer_length;
+
+    if (urb->kc_bounce_len < len) {
+        u8 *b = realloc(urb->kc_bounce, len);
+
+        if (b == NULL)
+            return -ENOMEM;
+        urb->kc_bounce = b;
+        urb->kc_bounce_len = len;
+    }
+    if (usb_pipein(urb->pipe))
+        return 0;
+    for (int i = 0; i < urb->num_sgs && sg != NULL && done < len; i++, sg = sg_next(sg)) {
+        size_t n = sg->length < len - done ? sg->length : len - done;
+
+        memcpy(urb->kc_bounce + done, sg_virt(sg), n);
+        done += n;
+    }
+    return 0;
+}
+
 static void LIBUSB_CALL kc_urb_complete(struct libusb_transfer *x) {
     struct urb *urb = x->user_data;
 
     urb->actual_length = (u32) x->actual_length;
     urb->status = kc_urb_status(x, urb);
+    if (urb->num_sgs && usb_pipein(urb->pipe))
+        kc_urb_scatter(urb);
 
     if (x->status == LIBUSB_TRANSFER_NO_DEVICE)
         kc_usb_mark_gone(urb->dev);
@@ -764,9 +813,6 @@ int usb_submit_urb(struct urb *urb, gfp_t flags) {
     if (dev->kc_gone)
         return -ENODEV;
 
-    /* Scatter-gather isn't offered */
-    if (urb->num_sgs)
-        return -EINVAL;
 
     if (urb->kc_xfer == NULL && (urb->kc_xfer = libusb_alloc_transfer(0)) == NULL)
         return -ENOMEM;
@@ -783,12 +829,22 @@ int usb_submit_urb(struct urb *urb, gfp_t flags) {
         return -EBUSY;
     }
 
+    void *buf = urb->transfer_buffer;
+
+    if (urb->num_sgs) {
+        if ((r = kc_urb_gather(urb)) < 0) {
+            pthread_mutex_unlock(&urb->kc_lock);
+            return r;
+        }
+        buf = urb->kc_bounce;
+    }
+
     if (usb_pipetype(urb->pipe) == PIPE_INTERRUPT)
         libusb_fill_interrupt_transfer(urb->kc_xfer, dev->kc_handle, kc_pipe_ep(urb->pipe),
-                urb->transfer_buffer, (int) urb->transfer_buffer_length, kc_urb_complete, urb, 0);
+                buf, (int) urb->transfer_buffer_length, kc_urb_complete, urb, 0);
     else
         libusb_fill_bulk_transfer(urb->kc_xfer, dev->kc_handle, kc_pipe_ep(urb->pipe),
-                urb->transfer_buffer, (int) urb->transfer_buffer_length, kc_urb_complete, urb, 0);
+                buf, (int) urb->transfer_buffer_length, kc_urb_complete, urb, 0);
 
     urb->kc_xfer->flags = (urb->transfer_flags & URB_ZERO_PACKET) ? LIBUSB_TRANSFER_ADD_ZERO_PACKET : 0;
     urb->status = -EINPROGRESS;

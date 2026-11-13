@@ -1,0 +1,10 @@
+mt7925_iq_alive
+mt7925_iq_close
+mt7925_iq_gain
+mt7925_iq_list
+mt7925_iq_mac
+mt7925_iq_open
+mt7925_iq_read
+mt7925_iq_stats
+mt7925_iq_superspeed
+mt7925_iq_tune

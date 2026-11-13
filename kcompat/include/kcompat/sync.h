@@ -161,6 +161,19 @@ static inline unsigned int refcount_read(const refcount_t *r) { return atomic_re
 static inline void refcount_inc(refcount_t *r) { atomic_inc(&r->refs); }
 static inline bool refcount_dec_and_test(refcount_t *r) { return atomic_dec_and_test(&r->refs); }
 
+struct kref {
+    refcount_t refcount;
+};
+static inline void kref_init(struct kref *k) { refcount_set(&k->refcount, 1); }
+static inline void kref_get(struct kref *k) { refcount_inc(&k->refcount); }
+static inline int kref_put(struct kref *k, void (*release)(struct kref *k)) {
+    if (refcount_dec_and_test(&k->refcount)) {
+        release(k);
+        return 1;
+    }
+    return 0;
+}
+
 /* RCU */
 struct rcu_head {
     struct rcu_head *next;

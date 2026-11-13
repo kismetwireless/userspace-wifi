@@ -372,6 +372,11 @@ static bool uwifi_width_ok(const struct ieee80211_supported_band *sband, enum nl
             if (sband->band == NL80211_BAND_6GHZ)
                 return he_w & IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G;
             return false;
+        case NL80211_CHAN_WIDTH_320: {
+            const struct ieee80211_sta_eht_cap *eht = ieee80211_get_eht_iftype_cap(sband, NL80211_IFTYPE_STATION);
+            return sband->band == NL80211_BAND_6GHZ && eht &&
+                (eht->eht_cap_elem.phy_cap_info[0] & IEEE80211_EHT_PHY_CAP0_320MHZ_IN_6GHZ);
+        }
         default:
             return false;
     }
@@ -405,8 +410,9 @@ void uwifi_print_caps(struct uwifi_dev *dev, FILE *out) {
     static const int he_mcs[] = { 7, 9, 11 };
     static const enum nl80211_chan_width widths[] = {
         NL80211_CHAN_WIDTH_20, NL80211_CHAN_WIDTH_40, NL80211_CHAN_WIDTH_80, NL80211_CHAN_WIDTH_160,
+        NL80211_CHAN_WIDTH_320,
     };
-    static const char *wnames[] = { "20", "40", "80", "160" };
+    static const char *wnames[] = { "20", "40", "80", "160", "320" };
 
     fprintf(out, "Adapter:   %s (%04x:%04x) on USB %s at %s, driver %s\n", uwifi_product(dev),
             dev->info.vid, dev->info.pid, dev->info.path, dev->info.speed, dev->info.driver);
@@ -532,6 +538,7 @@ static int uwifi_make_chan(struct uwifi_dev *dev, enum nl80211_band band, int ch
         case 40: w = NL80211_CHAN_WIDTH_40; break;
         case 80: w = NL80211_CHAN_WIDTH_80; break;
         case 160: w = NL80211_CHAN_WIDTH_160; break;
+        case 320: w = NL80211_CHAN_WIDTH_320; break;
         default: return -EINVAL;
     }
 
@@ -572,8 +579,8 @@ static int uwifi_make_chan(struct uwifi_dev *dev, enum nl80211_band band, int ch
     else if (width_mhz == 40)
         snprintf(out->name, sizeof(out->name), "%s%dHT40%c", pfx, ch, center > ch ? '+' : '-');
     else
-        snprintf(out->name, sizeof(out->name), "%s%d%s%d", pfx, ch, band == NL80211_BAND_6GHZ ? "HE" : "VHT",
-                width_mhz);
+        snprintf(out->name, sizeof(out->name), "%s%d%s%d", pfx, ch,
+                width_mhz == 320 ? "EHT" : band == NL80211_BAND_6GHZ ? "HE" : "VHT", width_mhz);
 
     return 0;
 }
@@ -622,6 +629,8 @@ int uwifi_parse_chan(struct uwifi_dev *dev, const char *spec, struct uwifi_chan 
         width = 80;
     } else if (strcasecmp(end, "VHT160") == 0 || strcasecmp(end, "HE160") == 0) {
         width = 160;
+    } else if (strcasecmp(end, "EHT320") == 0) {
+        width = 320;
     } else {
         return -EINVAL;
     }
@@ -631,9 +640,10 @@ int uwifi_parse_chan(struct uwifi_dev *dev, const char *spec, struct uwifi_chan 
 
 int uwifi_hop_list(struct uwifi_dev *dev, unsigned int bands, unsigned int widths, struct uwifi_chan **list,
         size_t *n) {
-    static const int wmhz[] = { 20, 40, 80, 160 };
+    static const int wmhz[] = { 20, 40, 80, 160, 320 };
     static const enum nl80211_chan_width wenum[] = {
         NL80211_CHAN_WIDTH_20, NL80211_CHAN_WIDTH_40, NL80211_CHAN_WIDTH_80, NL80211_CHAN_WIDTH_160,
+        NL80211_CHAN_WIDTH_320,
     };
     size_t cap = 64;
 

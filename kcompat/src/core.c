@@ -186,6 +186,8 @@ char *kasprintf(gfp_t flags, const char *fmt, ...) {
 struct kc_devres {
     struct kc_devres *next;
     void *ptr;
+    /* run with ptr instead of freeing it */
+    void (*action)(void *);
 };
 
 void kc_device_init(struct device *dev, struct device *parent, const char *name) {
@@ -201,7 +203,10 @@ void kc_device_release(struct device *dev) {
     pthread_mutex_lock(&dev->devres_lock);
     for (r = dev->devres; r != NULL; r = next) {
         next = r->next;
-        free(r->ptr);
+        if (r->action != NULL)
+            r->action(r->ptr);
+        else
+            free(r->ptr);
         free(r);
     }
     dev->devres = NULL;
@@ -214,7 +219,8 @@ static void *kc_devres_add(struct device *dev, void *p) {
     if (p == NULL)
         return NULL;
 
-    if ((r = malloc(sizeof(*r))) == NULL) {
+    /* No action: released by freeing ptr */
+    if ((r = calloc(1, sizeof(*r))) == NULL) {
         free(p);
         return NULL;
     }
@@ -226,6 +232,28 @@ static void *kc_devres_add(struct device *dev, void *p) {
     pthread_mutex_unlock(&dev->devres_lock);
 
     return p;
+}
+
+int devm_add_action(struct device *dev, void (*action)(void *), void *data) {
+    struct kc_devres *r;
+
+    if ((r = calloc(1, sizeof(*r))) == NULL)
+        return -ENOMEM;
+    r->ptr = data;
+    r->action = action;
+    pthread_mutex_lock(&dev->devres_lock);
+    r->next = dev->devres;
+    dev->devres = r;
+    pthread_mutex_unlock(&dev->devres_lock);
+    return 0;
+}
+
+int devm_add_action_or_reset(struct device *dev, void (*action)(void *), void *data) {
+    int ret = devm_add_action(dev, action, data);
+
+    if (ret)
+        action(data);
+    return ret;
 }
 
 void *devm_kmalloc(struct device *dev, size_t size, gfp_t flags) {
@@ -347,6 +375,11 @@ void *idr_get_next(const struct idr *idr, int *nextid) {
 static char *kc_fw_paths[KC_FW_MAX_PATHS];
 static size_t kc_fw_npaths, kc_fw_nhost;
 static char *kc_fw_choice, *kc_fw_board_choice, *kc_country;
+static kc_fw_filter_t kc_fw_filter;
+
+void kc_firmware_set_filter(kc_fw_filter_t filter) {
+    kc_fw_filter = filter;
+}
 
 static void kc_firmware_add_path(const char *path) {
     if (kc_fw_npaths < KC_FW_MAX_PATHS && (kc_fw_paths[kc_fw_npaths] = strdup(path)) != NULL)
@@ -475,6 +508,12 @@ static int kc_request_firmware_names(const struct firmware **fwp, const char *co
                     continue;
 
                 if ((r = fw_file_read(path, KC_FW_MAX_SIZE, &data, &len)) == 0) {
+                    if (kc_fw_filter != NULL && (r = kc_fw_filter(names[f], &data, &len)) < 0) {
+                        dev_err(dev, "firmware %s refused: %s", path, strerror(-r));
+                        free(data);
+                        free(fw);
+                        return r;
+                    }
                     fw->data = data;
                     fw->size = len;
                     dev_dbg(dev, "loaded firmware %s (%zu bytes)", path, fw->size);
@@ -553,4 +592,81 @@ void eth_random_addr(u8 *addr) {
     kc_get_random_bytes(addr, ETH_ALEN);
     addr[0] &= 0xfe;
     addr[0] |= 0x02;
+}
+
+/* Module parameters */
+#define KC_MAX_PARAMS 64
+static struct {
+    const char *name;
+    void *value;
+    enum kc_param_type type;
+} kc_params[KC_MAX_PARAMS];
+static size_t kc_nparams;
+
+void kc_param_register(const char *name, void *value, enum kc_param_type type) {
+    if (kc_nparams < KC_MAX_PARAMS) {
+        kc_params[kc_nparams].name = name;
+        kc_params[kc_nparams].value = value;
+        kc_params[kc_nparams].type = type;
+        kc_nparams++;
+    }
+}
+
+int kc_param_set(const char *name, long value) {
+    for (size_t i = 0; i < kc_nparams; i++) {
+        if (strcmp(kc_params[i].name, name) != 0)
+            continue;
+        switch (kc_params[i].type) {
+        case KC_PARAM_INT:
+            *(int *) kc_params[i].value = (int) value;
+            break;
+        case KC_PARAM_UINT:
+            *(unsigned int *) kc_params[i].value = (unsigned int) value;
+            break;
+        case KC_PARAM_BOOL:
+            *(bool *) kc_params[i].value = value != 0;
+            break;
+        }
+        return 0;
+    }
+    return -ENOENT;
+}
+
+/* Character devices */
+#define KC_MAX_MISC 16
+static struct miscdevice *kc_misc[KC_MAX_MISC];
+static pthread_mutex_t kc_misc_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int misc_register(struct miscdevice *misc) {
+    int ret = -ENOSPC;
+
+    pthread_mutex_lock(&kc_misc_lock);
+    for (size_t i = 0; i < KC_MAX_MISC; i++) {
+        if (kc_misc[i] == NULL) {
+            kc_misc[i] = misc;
+            ret = 0;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&kc_misc_lock);
+    return ret;
+}
+
+void misc_deregister(struct miscdevice *misc) {
+    pthread_mutex_lock(&kc_misc_lock);
+    for (size_t i = 0; i < KC_MAX_MISC; i++)
+        if (kc_misc[i] == misc)
+            kc_misc[i] = NULL;
+    pthread_mutex_unlock(&kc_misc_lock);
+}
+
+struct miscdevice *kc_misc_find(const char *name) {
+    struct miscdevice *found = NULL;
+
+    pthread_mutex_lock(&kc_misc_lock);
+    for (size_t i = 0; i < KC_MAX_MISC && found == NULL; i++)
+        if (kc_misc[i] != NULL && strcmp(kc_misc[i]->name, name) == 0)
+            found = kc_misc[i];
+    pthread_mutex_unlock(&kc_misc_lock);
+    return found;
 }

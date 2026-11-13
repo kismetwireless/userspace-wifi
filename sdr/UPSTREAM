@@ -1,0 +1,11 @@
+The MT7921AU I/Q capture is the work of Mtk79ICAP (https://github.com/MtkWifiRev/Mtk79ICAP,
+MIT and BSD-3-Clause-Clear):
+- ../drivers/mt76_icap: the mt76 driver with ICAP I/Q streaming (see its UPSTREAM)
+- third_party/libmt7921iq: the IQB2 stream decoder (see its UPSTREAM)
+- mt7961_fw.c: the iq_dma_v65 firmware patch, applied to the stock linux-firmware WM
+  firmware as it loads; its patch runs and checksums are from Mtk79ICAP's
+  firmware/mt7961-iq-fw-v65.py (MIT)
+
+The MT7925 I/Q capture (mt7925_host.c, mt7925_pump/) is our own, on the stock mt7925u driver
+and the firmware build it names.  Kismet's usbwifisdr datasource and its signal decoders
+live in Kismet, on top of iqradio.h.
