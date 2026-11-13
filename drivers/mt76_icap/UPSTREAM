@@ -9,3 +9,6 @@ Files are copied unmodified, only those the mt7921u driver builds, and built as-
 against ../../kcompat and ../../mac80211 for the SDR build (make SDR=1) only; uwifi keeps
 the kernel's mt76 in ../mt76.  Refresh by copying the same files from a
 newer Mtk79ICAP.
+
+Local changes: mt7921/iqstream.c, mt7921_iqs_gain_clear_stale(), which releases a gain
+forced by an earlier process at stream open.

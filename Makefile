@@ -7,7 +7,11 @@ FIRMWAREDIR = $(PREFIX)/share/uwifi/firmware
 
 CC ?= cc
 AR ?= ar
+OBJCOPY ?= objcopy
 PKG_CONFIG ?= pkg-config
+
+# I/Q capture on the MT7921AU and MT7925: SDR=1 builds usbsdr
+SDR ?= 0
 
 LIBUSBCFLAGS := $(shell $(PKG_CONFIG) --cflags libusb-1.0)
 LIBUSBLIBS := $(shell $(PKG_CONFIG) --libs libusb-1.0)
@@ -54,7 +58,7 @@ MAC80211_OBJS = \
 	mac80211/cfg80211.o \
 	kcompat/upstream/radiotap.o
 
-MT76_OBJS = \
+MT76_CORE_OBJS = \
 	drivers/mt76/mac80211.o \
 	drivers/mt76/util.o \
 	drivers/mt76/mcu.o \
@@ -69,7 +73,18 @@ MT76_OBJS = \
 	drivers/mt76/mt76_connac3_mac.o \
 	drivers/mt76/mt792x_core.o \
 	drivers/mt76/mt792x_mac.o \
-	drivers/mt76/mt792x_usb.o \
+	drivers/mt76/mt792x_usb.o
+
+MT7925_OBJS = \
+	drivers/mt76/mt7925/init.o \
+	drivers/mt76/mt7925/main.o \
+	drivers/mt76/mt7925/mac.o \
+	drivers/mt76/mt7925/mcu.o \
+	drivers/mt76/mt7925/usb.o \
+	drivers/mt76/mt7925/regd.o \
+	drivers/mt76/mt7925/nan.o
+
+MT76_OBJS = $(MT76_CORE_OBJS) $(MT7925_OBJS) \
 	drivers/mt76/mt76x02_util.o \
 	drivers/mt76/mt76x02_mac.o \
 	drivers/mt76/mt76x02_mcu.o \
@@ -86,13 +101,6 @@ MT76_OBJS = \
 	drivers/mt76/mt7921/mcu.o \
 	drivers/mt76/mt7921/usb.o \
 	drivers/mt76/mt7921/regd.o \
-	drivers/mt76/mt7925/init.o \
-	drivers/mt76/mt7925/main.o \
-	drivers/mt76/mt7925/mac.o \
-	drivers/mt76/mt7925/mcu.o \
-	drivers/mt76/mt7925/usb.o \
-	drivers/mt76/mt7925/regd.o \
-	drivers/mt76/mt7925/nan.o \
 	drivers/mt76/mt76x2/eeprom.o \
 	drivers/mt76/mt76x2/mac.o \
 	drivers/mt76/mt76x2/init.o \
@@ -180,17 +188,79 @@ HWSIM_OBJS = \
 TOOL_CFLAGS = -DUWIFI_HWSIM
 endif
 
+# The MT7921AU I/Q capture: the Mtk79ICAP mt76 driver, built as-is on the same emulation, in
+# place of the kernel's mt76
+ICAP_CFLAGS = $(KC_CFLAGS) -w -include linux/version.h -Idrivers/mt76_icap -Idrivers/mt76_icap/mt7921 \
+	-DKBUILD_MODNAME='"$(MODNAME)"'
+
+ICAP_OBJS = \
+	drivers/mt76_icap/mac80211.o \
+	drivers/mt76_icap/util.o \
+	drivers/mt76_icap/mcu.o \
+	drivers/mt76_icap/tx.o \
+	drivers/mt76_icap/eeprom.o \
+	drivers/mt76_icap/channel.o \
+	drivers/mt76_icap/agg-rx.o \
+	drivers/mt76_icap/scan.o \
+	drivers/mt76_icap/usb.o \
+	drivers/mt76_icap/mt76_connac_mcu.o \
+	drivers/mt76_icap/mt76_connac_mac.o \
+	drivers/mt76_icap/mt76_connac3_mac.o \
+	drivers/mt76_icap/mt792x_core.o \
+	drivers/mt76_icap/mt792x_mac.o \
+	drivers/mt76_icap/mt792x_usb.o \
+	drivers/mt76_icap/mt7921/init.o \
+	drivers/mt76_icap/mt7921/main.o \
+	drivers/mt76_icap/mt7921/mac.o \
+	drivers/mt76_icap/mt7921/mcu.o \
+	drivers/mt76_icap/mt7921/usb.o \
+	drivers/mt76_icap/mt7921/regd.o \
+	drivers/mt76_icap/mt7921/spectrum.o \
+	drivers/mt76_icap/mt7921/iqstream.o
+
+# Kernel-side host code for the MT7921AU stream
+SDR_HOST_OBJS = \
+	drivers/mt76_icap_glue.o \
+	sdr/mt7921_host.o \
+	sdr/mt7961_fw.o
+
+# The MT7925 I/Q stream drives the kernel's mt76 and mt7925u, linked next to the Mtk79ICAP mt76:
+# prelinked into one object that leaves only the mt7925_iq_ API global
+MT7925_SDR_OBJS = $(MT76_CORE_OBJS) $(MT7925_OBJS) $(GLUE_OBJS) sdr/mt7925_host.o
+MT7925_SDR = sdr/mt7925_sdr.o
+
+# The radio side: the IQB2 stream decoder and the sample interface, without kcompat
+SDR_RADIO_CFLAGS = -std=gnu11 -O2 -g -pthread -fPIE -MMD -MP -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE \
+	-Isdr -Isdr/third_party/libmt7921iq -Idrivers/mt76_icap/mt7921 -Wall -Wextra $(WNOCFLAGS) $(CFLAGS)
+
+SDR_RADIO_OBJS = \
+	sdr/third_party/libmt7921iq/mt7921iq.o \
+	sdr/iqradio.o \
+	sdr/iqdev.o \
+	sdr/iqout.o
+
+SDR_LIB = libuwifisdr.a
+SDR_TOOL = usbsdr
+
 ALL_OBJS = $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) \
-	$(HWSIM_OBJS) tools/uwifi.o
+	$(HWSIM_OBJS) tools/uwifi.o \
+	$(ICAP_OBJS) $(SDR_HOST_OBJS) sdr/mt7925_host.o $(SDR_RADIO_OBJS) tools/usbsdr.o
 
 # Drivers register from constructors, so the whole archive is linked
 ifeq ($(shell uname -s),Darwin)
 WHOLE_ARCHIVE = -Wl,-force_load,$(LIB)
+SDR_WHOLE_ARCHIVE = -Wl,-force_load,$(SDR_LIB)
 else
 WHOLE_ARCHIVE = -Wl,--whole-archive $(LIB) -Wl,--no-whole-archive
+SDR_WHOLE_ARCHIVE = -Wl,--whole-archive $(SDR_LIB) -Wl,--no-whole-archive
 endif
 
-all: $(TOOL)
+TARGETS = $(TOOL)
+ifeq ($(SDR),1)
+TARGETS += $(SDR_TOOL)
+endif
+
+all: $(TARGETS)
 
 $(LIB): $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) $(HWSIM_OBJS)
 	rm -f $@
@@ -201,6 +271,37 @@ $(TOOL): tools/uwifi.o $(LIB)
 
 tools/uwifi.o: tools/uwifi.c
 	$(CC) $(OWN_CFLAGS) $(TOOL_CFLAGS) -DFIRMWAREDIR=\"$(FIRMWAREDIR)\" -c $< -o $@
+
+$(SDR_LIB): $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(ICAP_OBJS) $(SDR_HOST_OBJS) $(MT7925_SDR) $(COMMON_OBJS) \
+		$(SDR_RADIO_OBJS)
+	rm -f $@
+	$(AR) rcs $@ $^
+
+ifeq ($(shell uname -s),Darwin)
+$(MT7925_SDR): $(MT7925_SDR_OBJS) sdr/mt7925_host.syms
+	sed 's/^/_/' sdr/mt7925_host.syms > $@.syms
+	$(CC) -r -nostdlib -Wl,-exported_symbols_list,$@.syms -o $@ $(MT7925_SDR_OBJS)
+	rm -f $@.syms
+else
+$(MT7925_SDR): $(MT7925_SDR_OBJS) sdr/mt7925_host.syms
+	$(CC) -r -nostdlib -o $@.tmp $(MT7925_SDR_OBJS)
+	$(OBJCOPY) --keep-global-symbols=sdr/mt7925_host.syms $@.tmp $@
+	rm -f $@.tmp
+endif
+
+$(SDR_TOOL): tools/usbsdr.o $(SDR_LIB)
+	$(CC) $(LDFLAGS) -pthread -o $@ tools/usbsdr.o $(SDR_WHOLE_ARCHIVE) $(LIBUSBLIBS) $(FIRMWARELIBS) -lm
+
+tools/usbsdr.o: tools/usbsdr.c
+	$(CC) $(SDR_RADIO_CFLAGS) -DFIRMWAREDIR=\"$(FIRMWAREDIR)\" -c $< -o $@
+
+$(SDR_RADIO_OBJS): %.o: %.c
+	$(CC) $(SDR_RADIO_CFLAGS) -c $< -o $@
+
+drivers/mt76_icap/%.o: drivers/mt76_icap/%.c
+	$(CC) $(ICAP_CFLAGS) -c $< -o $@
+
+drivers/mt76_icap_glue.o sdr/mt7921_host.o sdr/mt7961_fw.o: OWN_CFLAGS += -include linux/version.h -Idrivers/mt76_icap
 
 # Netlink against the system's Linux headers rather than kcompat's
 hwsim/genl.o: hwsim/genl.c
@@ -213,6 +314,7 @@ common/firmware_file.o: common/firmware_file.c
 drivers/mt76/mt7921/usb.o: MODNAME = mt7921u
 drivers/mt76/mt7925/usb.o: MODNAME = mt7925u
 drivers/mt76/mt76x2/usb.o: MODNAME = mt76x2u
+drivers/mt76_icap/mt7921/usb.o: MODNAME = mt7921u
 # Short names (rtw8814au rather than rtw88_8814au), so adapters are rtw8814a-0
 drivers/rtw88/%.o: MODNAME = rtw88
 drivers/rtw88/rtw8812au.o: MODNAME = rtw8812au
@@ -235,13 +337,17 @@ kcompat/upstream/%.o: kcompat/upstream/%.c
 %.o: %.c
 	$(CC) $(OWN_CFLAGS) -c $< -o $@
 
-install: $(TOOL)
+install: $(TARGETS)
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(FIRMWAREDIR)
 	install -m 755 $(TOOL) $(DESTDIR)$(BINDIR)
+ifeq ($(SDR),1)
+	install -m 755 $(SDR_TOOL) $(DESTDIR)$(BINDIR)
+endif
 	cp -R firmware/. $(DESTDIR)$(FIRMWAREDIR)
 
 clean:
-	@-rm -f $(TOOL) $(LIB) $(ALL_OBJS) $(ALL_OBJS:.o=.d)
+	@-rm -f $(TOOL) $(LIB) $(SDR_TOOL) $(SDR_LIB) $(MT7925_SDR) \
+		$(ALL_OBJS) $(ALL_OBJS:.o=.d)
 
 .PHONY: all install clean
 

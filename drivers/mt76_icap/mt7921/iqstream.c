@@ -949,6 +949,31 @@ static int mt7921_iqs_gain_release(struct mt7921_iqs *iqs)
 	return 0;
 }
 
+/* Userspace (local change): the driver lives only as long as its process, so
+ * forces with no gain_held behind them were left by a process that died
+ * holding the gain, and survive firmware reloads.  Drop just the force bits,
+ * which hands the chains back to the AGC.  Caller holds ctl_lock.
+ */
+static void mt7921_iqs_gain_clear_stale(struct mt7921_iqs *iqs)
+{
+	struct mt792x_dev *dev = iqs->dev;
+	u32 phy, rf;
+	int c;
+
+	for (c = 0; c < IQ_GAIN_CHAINS; c++) {
+		phy = mt76_rr(dev, IQ_PHY_RXGAIN(c));
+		if (phy & IQ_PHY_RXGAIN_FORCED)
+			mt76_wr(dev, IQ_PHY_RXGAIN(c), phy & ~IQ_PHY_RXGAIN_FORCED);
+		if (mt7921_iqs_rf(dev, IQ_RF_GAIN_PORT(c), IQ_RF_GAIN, &rf, true) ||
+		    !(rf & BIT(31)))
+			continue;
+		rf &= ~BIT(31);
+		if (mt7921_iqs_rf(dev, IQ_RF_GAIN_PORT(c), IQ_RF_GAIN, &rf, false))
+			continue;
+		dev_info(dev->mt76.dev, "iq: released a gain left forced on chain %d\n", c);
+	}
+}
+
 /* RX chains the running stream carries: the dense formats one, PACK32 lane
  * 0 (chain 0), the others both lanes.
  */
@@ -2067,6 +2092,8 @@ static int mt7921_iqs_misc_open(struct inode *inode, struct file *file)
 	if (mt7921_iqs_hw_ok(iqs)) {
 		if (iqs->gain_held)
 			mt7921_iqs_gain_release(iqs);
+		else
+			mt7921_iqs_gain_clear_stale(iqs);
 		mt7921_iqs_w24_restore(iqs);
 	}
 	memset(&iqs->gain, 0, sizeof(iqs->gain));
