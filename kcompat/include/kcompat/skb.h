@@ -46,7 +46,11 @@ struct page {
     union {
         struct {
             atomic_t refcount;
-            struct netmem_desc nmdesc;
+            /* page->pp in drivers from before netmem descriptors */
+            union {
+                struct netmem_desc nmdesc;
+                struct page_pool *pp;
+            };
             unsigned int order;
         };
         u8 kc_raw[1UL << 12];
@@ -144,6 +148,27 @@ static inline struct page *sg_page(struct scatterlist *sg) { return sg->page; }
 static inline void *sg_virt(struct scatterlist *sg) { return (u8 *) page_address(sg->page) + sg->offset; }
 static inline void sg_mark_end(struct scatterlist *sg) { sg->end = true; }
 static inline struct scatterlist *sg_next(struct scatterlist *sg) { return sg->end ? NULL : sg + 1; }
+/* Copies buflen bytes from skip bytes into the first nents entries */
+static inline size_t sg_pcopy_to_buffer(struct scatterlist *sgl, unsigned int nents, void *buf,
+        size_t buflen, off_t skip) {
+    size_t done = 0;
+
+    for (unsigned int i = 0; i < nents && sgl != NULL && done < buflen; i++, sgl = sg_next(sgl)) {
+        size_t len = sgl->length, n;
+
+        if ((size_t) skip >= len) {
+            skip -= (off_t) len;
+            continue;
+        }
+        n = len - (size_t) skip;
+        if (n > buflen - done)
+            n = buflen - done;
+        memcpy((u8 *) buf + done, (u8 *) sg_virt(sgl) + skip, n);
+        done += n;
+        skip = 0;
+    }
+    return done;
+}
 #define for_each_sg(sglist, sg, nr, i) \
     for ((i) = 0, (sg) = (sglist); (i) < (nr); (i)++, (sg) = sg_next(sg))
 
@@ -244,6 +269,13 @@ static inline struct skb_shared_info *skb_shinfo(const struct sk_buff *skb) {
 }
 static inline struct sk_buff *skb_get(struct sk_buff *skb) { refcount_inc(&skb->users); return skb; }
 static inline unsigned int skb_headlen(const struct sk_buff *skb) { return skb->len - skb->data_len; }
+static inline void *skb_header_pointer(const struct sk_buff *skb, int offset, int len, void *buffer) {
+    if (offset >= 0 && len >= 0 && (unsigned int) offset + (unsigned int) len <= skb_headlen(skb))
+        return skb->data + offset;
+    if (skb_copy_bits(skb, offset, buffer, len) < 0)
+        return NULL;
+    return buffer;
+}
 static inline bool skb_is_nonlinear(const struct sk_buff *skb) { return skb->data_len != 0; }
 static inline unsigned int skb_headroom(const struct sk_buff *skb) { return (unsigned int) (skb->data - skb->head); }
 static inline int skb_tailroom(const struct sk_buff *skb) {

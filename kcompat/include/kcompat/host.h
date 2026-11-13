@@ -28,4 +28,8 @@ void kc_set_log_cb(kc_log_cb_t cb, void *ctx, int max_level);
 /* Starts the jiffies ticker, timer thread and system workqueue; call once before use */
 int kc_runtime_init(void);
 
+/* Offers USB scatter-gather to devices probed after this, up to tablesize entries, through a
+ * bounce buffer per transfer; 0 (the default) offers none */
+void kc_usb_set_sg(unsigned int tablesize);
+
 #endif

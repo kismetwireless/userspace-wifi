@@ -150,14 +150,99 @@ struct thermal_cooling_device_ops {
 
 /* debugfs */
 struct dentry;
-struct file;
-struct inode;
 struct seq_file {
     void *private;
 };
+struct poll_table_struct;
+typedef struct poll_table_struct poll_table;
+typedef unsigned int __poll_t;
+/* An open file, for character devices the host calls into directly */
+struct inode {
+    void *i_private;
+};
+struct file {
+    void *private_data;
+    unsigned int f_flags;
+};
 struct file_operations {
     struct module *owner;
+    int (*open)(struct inode *inode, struct file *file);
+    int (*release)(struct inode *inode, struct file *file);
+    ssize_t (*read)(struct file *file, char *buf, size_t count, loff_t *ppos);
+    ssize_t (*write)(struct file *file, const char *buf, size_t count, loff_t *ppos);
+    __poll_t (*poll)(struct file *file, poll_table *wait);
+    long (*unlocked_ioctl)(struct file *file, unsigned int cmd, unsigned long arg);
+    long (*compat_ioctl)(struct file *file, unsigned int cmd, unsigned long arg);
+    loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 };
+/* One address space: user copies are plain copies */
+static inline unsigned long copy_from_user(void *to, const void *from, unsigned long n) {
+    memcpy(to, from, n);
+    return 0;
+}
+static inline unsigned long copy_to_user(void *to, const void *from, unsigned long n) {
+    memcpy(to, from, n);
+    return 0;
+}
+static inline ssize_t simple_read_from_buffer(void *to, size_t count, loff_t *ppos, const void *from,
+        size_t available) {
+    loff_t pos = *ppos;
+
+    if (pos < 0)
+        return -EINVAL;
+    if ((size_t) pos >= available || count == 0)
+        return 0;
+    if (count > available - (size_t) pos)
+        count = available - (size_t) pos;
+    memcpy(to, (const char *) from + pos, count);
+    *ppos = pos + (loff_t) count;
+    return (ssize_t) count;
+}
+static inline int simple_open(struct inode *inode, struct file *file) {
+    if (inode->i_private)
+        file->private_data = inode->i_private;
+    return 0;
+}
+#define default_llseek NULL
+#define no_llseek NULL
+static inline char *strim(char *s) {
+    size_t n = strlen(s);
+
+    while (n > 0 && isspace((unsigned char) s[n - 1]))
+        s[--n] = '\0';
+    while (*s && isspace((unsigned char) *s))
+        s++;
+    return s;
+}
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 04000
+#endif
+/* debugfs files are never created; their file operations only need to build */
+#define single_open(file, show, data) 0
+#define seq_read NULL
+#define seq_lseek NULL
+#define single_release NULL
+#define fixed_size_llseek(file, offset, whence, size) ((loff_t) 0)
+#define compat_ptr_ioctl NULL
+#define nonseekable_open(inode, file) 0
+#define poll_wait(file, wq, table) do { (void) (file); (void) (wq); (void) (table); } while (0)
+#define EPOLLIN 0x0001
+#define EPOLLRDNORM 0x0040
+#define EPOLLHUP 0x0010
+
+/* Character devices: registered by name, opened by the host through their file operations */
+#define MISC_DYNAMIC_MINOR 255
+struct miscdevice {
+    int minor;
+    const char *name;
+    const struct file_operations *fops;
+};
+int misc_register(struct miscdevice *misc);
+void misc_deregister(struct miscdevice *misc);
+/* The registered device of that name, or NULL; open it with file->private_data = misc, as
+ * the kernel's misc core does */
+struct miscdevice *kc_misc_find(const char *name);
+
 #define debugfs_create_dir(n, p) ((struct dentry *) NULL)
 #define debugfs_create_file(n, m, p, d, f) ((struct dentry *) NULL)
 #define debugfs_create_u8(n, m, p, v) do { } while (0)
@@ -179,7 +264,9 @@ static inline void dev_coredumpv(struct device *dev, void *data, size_t len, gfp
     (void) dev; (void) len; (void) gfp; kfree(data);
 }
 
-/* MediaTek WED / Airoha NPU offload, never present */
+/* MediaTek WED / Airoha NPU offload, never present; out-of-tree mt76 carries its own
+ * airoha_offload.h, which these replace */
+#define AIROHA_OFFLOAD_H
 struct mtk_wed_device {
     bool init_done;
     bool running;
@@ -334,6 +421,12 @@ const char *kc_firmware_board_choice(void);
  * the driver's own */
 void kc_set_country_choice(const char *alpha2);
 const char *kc_country_choice(void);
+/* Sees each firmware file as it is read, and may replace it (freeing the old data) or
+ * refuse it with a negative errno */
+typedef int (*kc_fw_filter_t)(const char *name, uint8_t **data, size_t *len);
+void kc_firmware_set_filter(kc_fw_filter_t filter);
+/* Sets a registered module parameter; -ENOENT if no driver has it */
+int kc_param_set(const char *name, long value);
 
 /* Misc */
 #define kallsyms_lookup_name(n) 0

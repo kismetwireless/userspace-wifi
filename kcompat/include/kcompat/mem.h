@@ -154,6 +154,8 @@ void *devm_kmemdup(struct device *dev, const void *src, size_t len, gfp_t flags)
 char *devm_kstrdup(struct device *dev, const char *s, gfp_t flags);
 char *devm_kasprintf(struct device *dev, gfp_t flags, const char *fmt, ...) __printf(3, 4);
 void devm_kfree(struct device *dev, const void *p);
+int devm_add_action(struct device *dev, void (*action)(void *), void *data);
+int devm_add_action_or_reset(struct device *dev, void (*action)(void *), void *data);
 
 void kc_dev_printk(const char *level, const struct device *dev, const char *fmt, ...) __printf(3, 4);
 #define dev_printk(level, dev, fmt, ...) kc_dev_printk(level, dev, fmt, ##__VA_ARGS__)
