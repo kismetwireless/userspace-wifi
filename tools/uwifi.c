@@ -102,7 +102,7 @@ static void usage(const char *argv0) {
             "  -p, --probe-channels  with info: tune every channel and width and report results\n"
             "  -c, --channels LIST   channels to hop, e.g. 1,6,11,36VHT80,6g:37HE80\n"
             "  -b, --bands LIST      bands to hop, from 2,5,6 (default all)\n"
-            "  -W, --widths LIST     widths to hop, from 20,40,80,160 (default 20)\n"
+            "  -W, --widths LIST     widths to hop, from 20,40,80,160,320 (default 20)\n"
             "  -t, --dwell MS        time per channel (default %d)\n"
             "  -T, --duration S      stop after S seconds\n"
             "  -w, --pcap FILE       write radiotap pcap; '-' for stdout\n"
@@ -189,6 +189,7 @@ static unsigned int parse_widths(const char *s) {
         else if (w == 40) m |= 1u << NL80211_CHAN_WIDTH_40;
         else if (w == 80) m |= 1u << NL80211_CHAN_WIDTH_80;
         else if (w == 160) m |= 1u << NL80211_CHAN_WIDTH_160;
+        else if (w == 320) m |= 1u << NL80211_CHAN_WIDTH_320;
     }
     return m;
 }
@@ -666,7 +667,7 @@ int main(int argc, char *argv[]) {
 
     if (probe) {
         widths = (1u << NL80211_CHAN_WIDTH_20) | (1u << NL80211_CHAN_WIDTH_40) | (1u << NL80211_CHAN_WIDTH_80) |
-            (1u << NL80211_CHAN_WIDTH_160);
+            (1u << NL80211_CHAN_WIDTH_160) | (1u << NL80211_CHAN_WIDTH_320);
         dwell_ms = PROBE_DWELL_MS;
         channels = NULL;
     }
