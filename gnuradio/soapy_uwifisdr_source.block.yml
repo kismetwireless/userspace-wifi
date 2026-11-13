@@ -1,0 +1,118 @@
+id: soapy_uwifisdr_source
+label: Soapy USB Wi-Fi SDR Source
+category: '[Soapy]'
+flags: [python, throttle]
+
+parameters:
+  - id: type
+    label: Output Type
+    dtype: enum
+    options: [fc32, sc16, sc8]
+    option_labels: [Complex Float32, Complex Int16, Complex Byte]
+    option_attributes:
+      type: [fc32, sc16, sc8]
+    hide: part
+
+  - id: device
+    label: Adapter
+    dtype: string
+    default: ''
+    hide: ${'part' if not device else 'none'}
+
+  - id: dev_args
+    label: Device arguments
+    dtype: string
+    hide: ${'part' if not dev_args else 'none'}
+
+  - id: samp_rate
+    label: Sample Rate
+    dtype: float
+    default: 'samp_rate'
+
+  - id: center_freq
+    label: 'Center Freq (Hz)'
+    category: RF Options
+    dtype: real
+    default: 'freq'
+
+  - id: agc
+    label: 'AGC'
+    category: RF Options
+    dtype: bool
+    default: 'False'
+    hide: part
+
+  - id: gain
+    label: 'RF Gain (0dB - 34dB)'
+    category: RF Options
+    dtype: real
+    default: '14'
+    hide: part
+
+inputs:
+  - domain: message
+    id: cmd
+    optional: true
+
+outputs:
+  - domain: stream
+    dtype: ${ type.type }
+    multiplicity: 1
+
+templates:
+  imports: from gnuradio import soapy
+  make: |
+      None
+      dev = 'driver=uwifisdr' + (',device=' + ${device} if ${device} else '')
+      stream_args = ''
+      tune_args = ['']
+      settings = ['']
+
+      self.${id} = soapy.source(dev, "${type}", 1, ${dev_args},
+                                stream_args, tune_args, settings)
+      ## A held gain turns the AGC off, so keep the gain aside while it's on
+      def _set_${id}_gain_mode(channel, agc):
+          self.${id}.set_gain_mode(channel, agc)
+          if not agc:
+              self.${id}.set_gain(channel, self._${id}_gain_value)
+      self.set_${id}_gain_mode = _set_${id}_gain_mode
+      def _set_${id}_gain(channel, name, gain):
+          self._${id}_gain_value = gain
+          if not self.${id}.get_gain_mode(channel):
+              self.${id}.set_gain(channel, name, gain)
+      self.set_${id}_gain = _set_${id}_gain
+      ## The module takes only its own rates (20.0008e6, ...); use the first that covers this one
+      def _set_${id}_sample_rate(channel, rate):
+          rates = sorted(r.minimum() for r in self.${id}.get_sample_rate_range(channel))
+          self.${id}.set_sample_rate(channel, next((r for r in rates if r >= rate * 0.999), rates[-1]))
+      self.set_${id}_sample_rate = _set_${id}_sample_rate
+      self._${id}_gain_value = min(max(${gain}, 0.0), 34.0)
+      self.set_${id}_sample_rate(0, ${samp_rate})
+      self.${id}.set_frequency(0, ${center_freq})
+      self.set_${id}_gain_mode(0, bool(${agc}))
+      self.set_${id}_gain(0, 'RF', min(max(${gain}, 0.0), 34.0))
+  callbacks:
+    - self.set_${id}_sample_rate(0, ${samp_rate})
+    - set_frequency(0, ${center_freq})
+    - self.set_${id}_gain_mode(0, ${agc})
+    - self.set_${id}_gain(0, 'RF', min(max(${gain}, 0.0), 34.0))
+
+documentation: |-
+  MediaTek USB Wi-Fi adapters as an SDR receiver, through the uwifisdr SoapySDR module
+  (userspace-wifi, built with SDR=1).
+
+  Adapter: mt7921sdr-N or mt7925sdr-N (usbsdr list); empty for the first.
+
+  Sample Rate: picks the channel width, the narrowest of 20, 40 or 80 MHz (160 on the
+  MT7925) that gives at least this rate.  The stream runs at width x 1.00004 MS/s (x2 on
+  the MT7925), e.g. 20.0008e6 for 20 MHz.
+
+  Center Freq: tuned to the nearest 5 MHz raster point plus a digital shift, so the stream is
+  centered where asked.  2412-2472 and 5005-5995 MHz (to 7115 MHz on the MT7925).
+
+  RF Gain: dB above the band's lowest gain code.  AGC hands the gain to the chip, which dips
+  on every nearby frame.
+
+  The MT7925 delivers 8192-sample snapshots with gaps between them, not a continuous stream.
+
+file_format: 1

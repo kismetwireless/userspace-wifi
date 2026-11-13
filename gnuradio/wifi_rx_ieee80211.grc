@@ -1,0 +1,163 @@
+options:
+  parameters:
+    author: ''
+    category: '[GRC Hier Blocks]'
+    description: 802.11a/g/n/ac frames from a USB Wi-Fi SDR through gr-ieee80211's SISO receiver, without a GUI
+    generate_options: no_gui
+    id: wifi_rx_ieee80211
+    output_language: python
+    run: 'True'
+    run_options: run
+    title: USB Wi-Fi SDR 802.11a/g/n/ac receive test (gr-ieee80211)
+  states:
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: freq
+  id: parameter
+  parameters:
+    label: Center frequency
+    short_id: f
+    type: eng_float
+    value: 5180e6
+  states: {coordinate: [200, 8], rotation: 0, state: enabled}
+- name: gain
+  id: parameter
+  parameters:
+    label: RF gain
+    short_id: g
+    type: eng_float
+    value: '14'
+  states: {coordinate: [320, 8], rotation: 0, state: enabled}
+- name: agc
+  id: parameter
+  parameters:
+    label: AGC
+    short_id: a
+    type: intx
+    value: '0'
+  states: {coordinate: [440, 8], rotation: 0, state: enabled}
+- name: samp_rate
+  id: variable
+  parameters:
+    value: 20e6
+  states: {coordinate: [560, 8], rotation: 0, state: enabled}
+
+- name: src
+  id: soapy_uwifisdr_source
+  parameters:
+    type: fc32
+    device: ''
+    dev_args: ''
+    samp_rate: samp_rate
+    center_freq: freq
+    agc: bool(agc)
+    gain: gain
+  states: {coordinate: [8, 200], rotation: 0, state: enabled}
+
+# gr-ieee80211's presiso stage: the short preamble's autocorrelation, and its power-normalized
+# magnitude for the trigger
+- name: delay_16
+  id: blocks_delay
+  parameters:
+    type: complex
+    delay: '16'
+    num_ports: '1'
+    vlen: '1'
+  states: {coordinate: [240, 120], rotation: 0, state: enabled}
+- name: corr
+  id: blocks_multiply_conjugate_cc
+  parameters:
+    vlen: '1'
+  states: {coordinate: [400, 120], rotation: 0, state: enabled}
+- name: corr_avg
+  id: blocks_moving_average_xx
+  parameters:
+    type: complex
+    length: '48'
+    scale: '1'
+    max_iter: '4000'
+    vlen: '1'
+  states: {coordinate: [560, 120], rotation: 0, state: enabled}
+- name: corr_mag
+  id: blocks_complex_to_mag
+  parameters:
+    vlen: '1'
+  states: {coordinate: [720, 120], rotation: 0, state: enabled}
+- name: power
+  id: blocks_complex_to_mag_squared
+  parameters:
+    vlen: '1'
+  states: {coordinate: [240, 280], rotation: 0, state: enabled}
+- name: power_avg
+  id: blocks_moving_average_xx
+  parameters:
+    type: float
+    length: '64'
+    scale: '1'
+    max_iter: '4000'
+    vlen: '1'
+  states: {coordinate: [400, 280], rotation: 0, state: enabled}
+- name: norm
+  id: blocks_divide_xx
+  parameters:
+    type: float
+    num_inputs: '2'
+    vlen: '1'
+  states: {coordinate: [880, 200], rotation: 0, state: enabled}
+
+- name: trigger
+  id: ieee80211_trigger
+  parameters: {}
+  states: {coordinate: [1040, 200], rotation: 0, state: enabled}
+- name: sync
+  id: ieee80211_sync
+  parameters: {}
+  states: {coordinate: [1200, 200], rotation: 0, state: enabled}
+- name: sig_field
+  id: ieee80211_signal
+  parameters: {}
+  states: {coordinate: [1360, 200], rotation: 0, state: enabled}
+- name: demod
+  id: ieee80211_demod
+  parameters:
+    mupos: '0'
+    mugid: '2'
+  states: {coordinate: [1520, 200], rotation: 0, state: enabled}
+- name: decode
+  id: ieee80211_decode
+  parameters: {}
+  states: {coordinate: [1680, 200], rotation: 0, state: enabled}
+# GRC wants the packet output connected; the store port keeps them without printing
+- name: packets
+  id: blocks_message_debug
+  parameters:
+    en_uvec: 'False'
+    log_level: info
+  states: {coordinate: [1840, 200], rotation: 0, state: enabled}
+
+connections:
+- [src, '0', delay_16, '0']
+- [src, '0', corr, '1']
+- [src, '0', power, '0']
+- [src, '0', sync, '2']
+- [src, '0', sig_field, '1']
+- [delay_16, '0', corr, '0']
+- [corr, '0', corr_avg, '0']
+- [corr_avg, '0', corr_mag, '0']
+- [corr_avg, '0', sync, '1']
+- [power, '0', power_avg, '0']
+- [corr_mag, '0', norm, '0']
+- [power_avg, '0', norm, '1']
+- [norm, '0', trigger, '0']
+- [trigger, '0', sync, '0']
+- [sync, '0', sig_field, '0']
+- [sig_field, '0', demod, '0']
+- [demod, '0', decode, '0']
+- [decode, out, packets, store]
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0

@@ -1,0 +1,204 @@
+options:
+  parameters:
+    author: ''
+    category: '[GRC Hier Blocks]'
+    description: 802.11a/g frames from a USB Wi-Fi SDR through gr-ieee802-11's receiver, without a GUI
+    generate_options: no_gui
+    id: wifi_rx_ieee802_11
+    output_language: python
+    run: 'True'
+    run_options: run
+    title: USB Wi-Fi SDR 802.11a/g receive test (gr-ieee802-11)
+  states:
+    coordinate: [8, 8]
+    rotation: 0
+    state: enabled
+
+blocks:
+- name: freq
+  id: parameter
+  parameters:
+    label: Center frequency
+    short_id: f
+    type: eng_float
+    value: 5180e6
+  states: {coordinate: [200, 8], rotation: 0, state: enabled}
+- name: gain
+  id: parameter
+  parameters:
+    label: RF gain
+    short_id: g
+    type: eng_float
+    value: '14'
+  states: {coordinate: [320, 8], rotation: 0, state: enabled}
+- name: agc
+  id: parameter
+  parameters:
+    label: AGC
+    short_id: a
+    type: intx
+    value: '0'
+  states: {coordinate: [440, 8], rotation: 0, state: enabled}
+- name: samp_rate
+  id: variable
+  parameters:
+    value: 20e6
+  states: {coordinate: [560, 8], rotation: 0, state: enabled}
+- name: sync_length
+  id: variable
+  parameters:
+    value: '320'
+  states: {coordinate: [680, 8], rotation: 0, state: enabled}
+- name: window_size
+  id: variable
+  parameters:
+    value: '48'
+  states: {coordinate: [800, 8], rotation: 0, state: enabled}
+
+- name: src
+  id: soapy_uwifisdr_source
+  parameters:
+    type: fc32
+    device: ''
+    dev_args: ''
+    samp_rate: samp_rate
+    center_freq: freq
+    agc: bool(agc)
+    gain: gain
+  states: {coordinate: [8, 200], rotation: 0, state: enabled}
+
+- name: delay_16
+  id: blocks_delay
+  parameters:
+    type: complex
+    delay: '16'
+    num_ports: '1'
+    vlen: '1'
+  states: {coordinate: [240, 120], rotation: 0, state: enabled}
+- name: conj
+  id: blocks_conjugate_cc
+  parameters: {}
+  states: {coordinate: [400, 120], rotation: 0, state: enabled}
+- name: mult
+  id: blocks_multiply_xx
+  parameters:
+    type: complex
+    num_inputs: '2'
+    vlen: '1'
+  states: {coordinate: [560, 200], rotation: 0, state: enabled}
+- name: corr_avg
+  id: blocks_moving_average_xx
+  parameters:
+    type: complex
+    length: window_size
+    scale: '1'
+    max_iter: '4000'
+    vlen: '1'
+  states: {coordinate: [680, 200], rotation: 0, state: enabled}
+- name: corr_mag
+  id: blocks_complex_to_mag
+  parameters:
+    vlen: '1'
+  states: {coordinate: [840, 200], rotation: 0, state: enabled}
+- name: power
+  id: blocks_complex_to_mag_squared
+  parameters:
+    vlen: '1'
+  states: {coordinate: [240, 280], rotation: 0, state: enabled}
+- name: power_avg
+  id: blocks_moving_average_xx
+  parameters:
+    type: float
+    length: window_size + 16
+    scale: '1'
+    max_iter: '4000'
+    vlen: '1'
+  states: {coordinate: [400, 280], rotation: 0, state: enabled}
+- name: norm
+  id: blocks_divide_xx
+  parameters:
+    type: float
+    num_inputs: '2'
+    vlen: '1'
+  states: {coordinate: [960, 240], rotation: 0, state: enabled}
+- name: sync_short
+  id: ieee802_11_sync_short
+  parameters:
+    threshold: '0.56'
+    min_plateau: '2'
+    log: 'False'
+    debug: 'False'
+  states: {coordinate: [1100, 160], rotation: 0, state: enabled}
+- name: delay_sync
+  id: blocks_delay
+  parameters:
+    type: complex
+    delay: sync_length
+    num_ports: '1'
+    vlen: '1'
+  states: {coordinate: [1100, 300], rotation: 0, state: enabled}
+- name: sync_long
+  id: ieee802_11_sync_long
+  parameters:
+    sync_length: sync_length
+    log: 'False'
+    debug: 'False'
+  states: {coordinate: [1260, 200], rotation: 0, state: enabled}
+- name: to_vector
+  id: blocks_stream_to_vector
+  parameters:
+    type: complex
+    num_items: '64'
+    vlen: '1'
+  states: {coordinate: [1420, 200], rotation: 0, state: enabled}
+- name: ofdm_fft
+  id: fft_vxx
+  parameters:
+    type: complex
+    fft_size: '64'
+    forward: 'True'
+    window: window.rectangular(64)
+    shift: 'True'
+    nthreads: '1'
+  states: {coordinate: [1560, 200], rotation: 0, state: enabled}
+- name: equalizer
+  id: ieee802_11_frame_equalizer
+  parameters:
+    algo: ieee802_11.LS
+    freq: freq
+    bw: samp_rate
+    log: 'False'
+    debug: 'False'
+  states: {coordinate: [1720, 200], rotation: 0, state: enabled}
+- name: decode_mac
+  id: ieee802_11_decode_mac
+  parameters:
+    log: 'False'
+    debug: 'False'
+  states: {coordinate: [1900, 200], rotation: 0, state: enabled}
+
+connections:
+- [src, '0', delay_16, '0']
+- [src, '0', mult, '0']
+- [src, '0', power, '0']
+- [delay_16, '0', conj, '0']
+- [delay_16, '0', sync_short, '0']
+- [conj, '0', mult, '1']
+- [mult, '0', corr_avg, '0']
+- [corr_avg, '0', corr_mag, '0']
+- [corr_avg, '0', sync_short, '1']
+- [power, '0', power_avg, '0']
+- [corr_mag, '0', norm, '0']
+- [power_avg, '0', norm, '1']
+- [norm, '0', sync_short, '2']
+- [sync_short, '0', delay_sync, '0']
+- [sync_short, '0', sync_long, '0']
+- [delay_sync, '0', sync_long, '1']
+- [sync_long, '0', to_vector, '0']
+- [to_vector, '0', ofdm_fft, '0']
+- [ofdm_fft, '0', equalizer, '0']
+- [equalizer, '0', decode_mac, '0']
+
+metadata:
+  file_format: 1
+  grc_version: 3.10.12.0
