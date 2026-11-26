@@ -172,6 +172,12 @@ static inline void list_splice_init(struct list_head *list, struct list_head *he
         INIT_LIST_HEAD(list);
     }
 }
+static inline void list_splice_tail(struct list_head *list, struct list_head *head) {
+    if (!list_empty(list)) {
+        struct list_head *first = list->next, *last = list->prev, *at = head->prev;
+        first->prev = at; at->next = first; last->next = head; head->prev = last;
+    }
+}
 static inline void list_splice_tail_init(struct list_head *list, struct list_head *head) {
     if (!list_empty(list)) {
         struct list_head *first = list->next, *last = list->prev, *at = head->prev;
@@ -202,5 +208,10 @@ static inline void list_splice_tail_init(struct list_head *list, struct list_hea
 
 #define INIT_HLIST_HEAD(ptr) ((ptr)->first = NULL)
 static inline void INIT_HLIST_NODE(struct hlist_node *h) { h->next = NULL; h->pprev = NULL; }
+
+/* field_get()/field_prep(): FIELD_GET()/FIELD_PREP() for masks known only at run time */
+#define field_get(mask, reg) (((reg) & (mask)) / ((mask) & -(mask)))
+#define field_prep(mask, val) (((val) * ((mask) & -(mask))) & (mask))
+
 
 #endif

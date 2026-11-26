@@ -114,8 +114,10 @@ struct attribute {
     const char *name;
     umode_t mode;
 };
+struct kobject;
 struct attribute_group {
     const char *name;
+    umode_t (*is_visible)(struct kobject *, struct attribute *, int);
     struct attribute **attrs;
 };
 struct device_attribute {

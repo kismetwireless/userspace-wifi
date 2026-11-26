@@ -481,3 +481,23 @@ int nl80211_chan_width_to_mhz(enum nl80211_chan_width chan_width)
 	}
 	return mhz;
 }
+
+/* As net/wireless/scan.c */
+const struct element *cfg80211_find_elem_match(u8 eid, const u8 *ies, unsigned int len,
+        const u8 *match, unsigned int match_len, unsigned int match_offset) {
+    const struct element *elem;
+
+    for_each_element_id(elem, eid, ies, len) {
+        if (elem->datalen >= match_offset + match_len &&
+                (!match_len || !memcmp(elem->data + match_offset, match, match_len)))
+            return elem;
+    }
+
+    return NULL;
+}
+
+/* No scan results are kept */
+void cfg80211_bss_iter(struct wiphy *wiphy, struct cfg80211_chan_def *chandef,
+        void (*iter)(struct wiphy *wiphy, struct cfg80211_bss *bss, void *data), void *iter_data) {
+    (void) wiphy; (void) chandef; (void) iter; (void) iter_data;
+}

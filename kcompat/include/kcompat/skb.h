@@ -486,6 +486,12 @@ static inline void skb_queue_splice_init(struct sk_buff_head *list, struct sk_bu
     }
 }
 #define skb_queue_splice_tail skb_queue_splice_tail_init
+static inline void skb_queue_splice(const struct sk_buff_head *list, struct sk_buff_head *head) {
+    if (!skb_queue_empty(list)) {
+        __skb_queue_splice(list, (struct sk_buff *) head, head->next);
+        head->qlen += list->qlen;
+    }
+}
 #define skb_queue_walk(queue, skb) \
     for (skb = (queue)->next; skb != (struct sk_buff *) (queue); skb = skb->next)
 #define skb_queue_walk_safe(queue, skb, tmp) \

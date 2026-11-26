@@ -200,7 +200,9 @@ typedef unsigned long kernel_ulong_t;
 
 #define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
 #define __is_constexpr(x) __builtin_constant_p(x)
-#define BUILD_BUG_ON(c) _Static_assert(!(c), "BUILD_BUG_ON(" #c ")")
+/* As the kernel's older form: a constant true condition fails to compile, while one only the
+ * optimizer can fold (a const table's member, as in rtw89) isn't checked */
+#define BUILD_BUG_ON(c) ((void) sizeof(char[1 - 2 * !!(c)]))
 #define BUILD_BUG_ON_ZERO(e) 0
 #define BUILD_BUG_ON_MSG(c, m) _Static_assert(!(c), m)
 #define __must_be_array(a) 0
@@ -343,7 +345,8 @@ static inline u64 div_u64_rem(u64 n, u32 d, u32 *r) { *r = (u32) (n % d); return
 /* Bit counting */
 static inline unsigned int hweight8(unsigned int w) { return __builtin_popcount(w & 0xff); }
 static inline unsigned int hweight16(unsigned int w) { return __builtin_popcount(w & 0xffff); }
-static inline unsigned int hweight32(unsigned int w) { return __builtin_popcount(w); }
+/* A macro, so constant arguments fold in static_assert() as in the kernel */
+#define hweight32(w) ((unsigned int) __builtin_popcount((unsigned int) (w)))
 static inline unsigned long hweight64(u64 w) { return __builtin_popcountll(w); }
 static inline unsigned long hweight_long(unsigned long w) { return __builtin_popcountl(w); }
 static inline int kc_ffs(int x) { return __builtin_ffs(x); }
@@ -566,5 +569,34 @@ static inline int kstrtobool(const char *s, bool *res) {
         default: return -EINVAL;
     }
 }
+
+/* Helpers from newer kernels (rtw89) */
+#define BITS_PER_TYPE(t) (sizeof(t) * 8)
+#define BITS_TO_BYTES(n) DIV_ROUND_UP(n, 8)
+#define DIV_ROUND_DOWN_ULL(n, d) ((unsigned long long) (n) / (d))
+static inline u64 roundup_u64(u64 x, u32 y) { return DIV_ROUND_UP_ULL(x, y) * y; }
+static inline void *memchr_inv(const void *s, int c, size_t n) {
+    const u8 *p = s;
+    for (size_t i = 0; i < n; i++)
+        if (p[i] != (u8) c)
+            return (void *) (p + i);
+    return NULL;
+}
+static inline void bitmap_copy(unsigned long *dst, const unsigned long *src, unsigned int nbits) {
+    memcpy(dst, src, BITS_TO_LONGS(nbits) * sizeof(unsigned long));
+}
+static inline const char *str_yes_no(bool v) { return v ? "yes" : "no"; }
+static inline const char *str_read_write(bool v) { return v ? "read" : "write"; }
+static inline const char *str_enable_disable(bool v) { return v ? "enable" : "disable"; }
+static inline void bitmap_or(unsigned long *dst, const unsigned long *a, const unsigned long *b,
+        unsigned int nbits) {
+    for (unsigned int i = 0; i < BITS_TO_LONGS(nbits); i++)
+        dst[i] = a[i] | b[i];
+}
+/* Compile-time check that x has the given type; evaluates to 1 */
+#define typecheck(type, x) ({ type __kc_tc1; __typeof__(x) __kc_tc2; (void) (&__kc_tc1 == &__kc_tc2); 1; })
+/* sort.h: swap is always the plain one here */
+#define sort(base, num, size, cmp, swap) qsort(base, num, size, cmp)
+
 
 #endif

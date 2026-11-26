@@ -164,6 +164,12 @@ struct usb_device {
 struct urb;
 typedef void (*usb_complete_t)(struct urb *);
 
+/* A list of submitted URBs, so they can be killed together */
+struct usb_anchor {
+    struct list_head urb_list;
+    pthread_mutex_t lock;
+};
+
 struct urb {
     struct usb_device *dev;
     unsigned int pipe;
@@ -179,6 +185,8 @@ struct urb {
     int interval;
     void *context;
     usb_complete_t complete;
+    struct usb_anchor *anchor;
+    struct list_head anchor_list;
     /* kcompat */
     struct libusb_transfer *kc_xfer;
     pthread_mutex_t kc_lock;
@@ -334,6 +342,13 @@ int usb_unlink_urb(struct urb *urb);
 void usb_kill_urb(struct urb *urb);
 void usb_poison_urb(struct urb *urb);
 void usb_unpoison_urb(struct urb *urb);
+/* Anchored URBs hold a reference and leave the anchor as they complete, before the
+ * completion handler runs */
+void init_usb_anchor(struct usb_anchor *anchor);
+void usb_anchor_urb(struct urb *urb, struct usb_anchor *anchor);
+void usb_unanchor_urb(struct urb *urb);
+void usb_kill_anchored_urbs(struct usb_anchor *anchor);
+bool usb_anchor_empty(struct usb_anchor *anchor);
 static inline void usb_fill_bulk_urb(struct urb *urb, struct usb_device *dev, unsigned int pipe,
         void *buf, int len, usb_complete_t complete, void *context) {
     urb->dev = dev; urb->pipe = pipe; urb->transfer_buffer = buf;

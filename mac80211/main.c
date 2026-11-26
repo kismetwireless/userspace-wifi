@@ -81,6 +81,12 @@ struct ieee80211_hw *ieee80211_alloc_hw_nm(size_t priv_data_len, const struct ie
         return NULL;
     }
 
+    if (kc_wiphy_work_init(local, name) < 0) {
+        destroy_workqueue(local->workqueue);
+        free(wiphy);
+        return NULL;
+    }
+
     INIT_WORK(&local->restart_work, kc_restart_work);
     kc_mac80211_tx_init(local);
     INIT_LIST_HEAD(&local->list);
@@ -92,6 +98,7 @@ void ieee80211_free_hw(struct ieee80211_hw *hw) {
     struct wiphy *wiphy = hw->wiphy;
 
     cancel_work_sync(&local->restart_work);
+    kc_wiphy_work_exit(local);
     destroy_workqueue(local->workqueue);
     kc_device_release(&wiphy->dev);
     free(wiphy);
@@ -121,16 +128,28 @@ static void kc_default_chandef(struct ieee80211_local *local) {
     }
 }
 
-static void kc_reg_notify(struct ieee80211_local *local) {
+static void kc_reg_notify(struct ieee80211_local *local, enum nl80211_reg_initiator initiator) {
     struct wiphy *wiphy = local->hw.wiphy;
     struct regulatory_request req;
 
     if (wiphy->reg_notifier == NULL)
         return;
 
+    /* As cfg80211 on a domain change: channel flags start again from what the driver
+     * registered, so a notifier that disabled channels for one country (rtw89 blocks
+     * 6GHz for the world domain) doesn't leave them disabled for the next */
+    for (int b = 0; b < NUM_NL80211_BANDS; b++) {
+        struct ieee80211_supported_band *sband = wiphy->bands[b];
+        if (sband == NULL)
+            continue;
+        for (int c = 0; c < sband->n_channels; c++)
+            sband->channels[c].flags = sband->channels[c].orig_flags;
+    }
+
     memset(&req, 0, sizeof(req));
-    req.initiator = NL80211_REGDOM_SET_BY_USER;
-    req.user_reg_hint_type = NL80211_USER_REG_HINT_USER;
+    req.initiator = initiator;
+    if (initiator == NL80211_REGDOM_SET_BY_USER)
+        req.user_reg_hint_type = NL80211_USER_REG_HINT_USER;
     memcpy(req.alpha2, local->alpha2, sizeof(req.alpha2));
     req.dfs_region = NL80211_DFS_UNSET;
 
@@ -145,12 +164,29 @@ int ieee80211_register_hw(struct ieee80211_hw *hw) {
         if (sband == NULL)
             continue;
         sband->band = b;
-        for (int c = 0; c < sband->n_channels; c++)
+        for (int c = 0; c < sband->n_channels; c++) {
             sband->channels[c].band = b;
+            /* As wiphy_register(): the flags each domain change starts from */
+            sband->channels[c].orig_flags = sband->channels[c].flags;
+        }
     }
 
     kc_default_chandef(local);
     hw->conf.chandef = local->default_chandef;
+
+    /* As wiphy_register(): the notifier hears the current domain, so drivers that follow
+     * the stack (rtw89 on a worldwide-programmed chip) have one before they start.  A
+     * country chosen before opening is the current domain, as one set with iw would be,
+     * so the bands reported after opening already reflect it. */
+    const char *country = kc_country_choice();
+    if (country != NULL) {
+        memcpy(local->alpha2, country, 2);
+        local->alpha2[2] = 0;
+        kc_reg_notify(local, NL80211_REGDOM_SET_BY_USER);
+    } else {
+        kc_reg_notify(local, NL80211_REGDOM_SET_BY_CORE);
+    }
+
     hw->wiphy->registered = true;
 
     pthread_mutex_lock(&kc_locals_lock);
@@ -210,7 +246,7 @@ int kc_mac80211_set_regdomain(struct ieee80211_hw *hw, const char *alpha2) {
 
     memcpy(local->alpha2, alpha2, 2);
     local->alpha2[2] = 0;
-    kc_reg_notify(local);
+    kc_reg_notify(local, NL80211_REGDOM_SET_BY_USER);
     return 0;
 }
 
@@ -262,6 +298,11 @@ void ieee80211_iterate_active_interfaces_atomic(struct ieee80211_hw *hw, u32 ite
 void ieee80211_iterate_stations_atomic(struct ieee80211_hw *hw,
         void (*iterator)(void *data, struct ieee80211_sta *sta), void *data) {
     (void) hw; (void) iterator; (void) data;
+}
+
+/* No stations, as ieee80211_iterate_stations_atomic() */
+struct ieee80211_sta *__ieee80211_iterate_stations(struct ieee80211_hw *hw, struct ieee80211_sta *prev) {
+    (void) hw; (void) prev; return NULL;
 }
 
 /* Channel contexts emulated through config(), as mac80211's _ieee80211_hw_conf_chan */
@@ -689,6 +730,10 @@ void ieee80211_sta_register_airtime(struct ieee80211_sta *pubsta, u8 tid, u32 tx
 int ieee80211_start_tx_ba_session(struct ieee80211_sta *sta, u16 tid, u16 timeout) {
     (void) sta; (void) tid; (void) timeout; return -EOPNOTSUPP;
 }
+int ieee80211_stop_tx_ba_session(struct ieee80211_sta *sta, u16 tid) {
+    (void) sta; (void) tid; return -ENOENT;
+}
+void ieee80211_sta_recalc_aggregates(struct ieee80211_sta *pubsta) { (void) pubsta; }
 void ieee80211_stop_tx_ba_cb_irqsafe(struct ieee80211_vif *vif, const u8 *ra, u16 tid) {
     (void) vif; (void) ra; (void) tid;
 }
@@ -716,6 +761,10 @@ struct sk_buff *ieee80211_probereq_get(struct ieee80211_hw *hw, const u8 *src_ad
 
 /* Only the monitor interface exists: never MLD, NAN or backed by a wireless_dev */
 struct wireless_dev *ieee80211_vif_to_wdev(struct ieee80211_vif *vif) { (void) vif; return NULL; }
+/* Monitoring uses the default link only */
+int ieee80211_set_active_links(struct ieee80211_vif *vif, u16 active_links) {
+    (void) vif; (void) active_links; return 0;
+}
 void ieee80211_set_active_links_async(struct ieee80211_vif *vif, u16 active_links) {
     (void) vif; (void) active_links;
 }

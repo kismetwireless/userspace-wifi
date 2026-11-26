@@ -61,6 +61,7 @@ OWN_CFLAGS = $(KC_CFLAGS) -Wall -Wextra $(WNOCFLAGS) -I. -Imac80211 -Idrivers
 MODNAME = mt76
 DRV_CFLAGS = $(KC_CFLAGS) -w -Idrivers/mt76 -DKBUILD_MODNAME='"$(MODNAME)"'
 RTW88_CFLAGS = $(KC_CFLAGS) -w -Idrivers/rtw88 -DKBUILD_MODNAME='"$(MODNAME)"'
+RTW89_CFLAGS = $(KC_CFLAGS) -w -Idrivers/rtw89 -DKBUILD_MODNAME='"$(MODNAME)"'
 
 KCOMPAT_OBJS = \
 	kcompat/src/core.o \
@@ -72,7 +73,7 @@ MAC80211_OBJS = \
 	mac80211/main.o \
 	mac80211/rx.o \
 	mac80211/tx.o \
-	mac80211/cfg80211.o \
+	mac80211/cfg80211.o 	mac80211/wiphy_work.o \
 	kcompat/upstream/radiotap.o
 
 MT76_CORE_OBJS = \
@@ -173,6 +174,31 @@ RTW88_OBJS = \
 	drivers/rtw88/rtw8723d_table.o \
 	drivers/rtw88/rtw8723du.o
 
+# rtw89 USB: core, USB transport and the 8922A (RTL8912AU/RTL8922AU); no PCI, debugfs, LEDs or WoWLAN
+RTW89_OBJS = \
+	drivers/rtw89/core.o \
+	drivers/rtw89/mac80211.o \
+	drivers/rtw89/mac.o \
+	drivers/rtw89/mac_be.o \
+	drivers/rtw89/phy.o \
+	drivers/rtw89/phy_be.o \
+	drivers/rtw89/fw.o \
+	drivers/rtw89/cam.o \
+	drivers/rtw89/efuse.o \
+	drivers/rtw89/efuse_be.o \
+	drivers/rtw89/regd.o \
+	drivers/rtw89/sar.o \
+	drivers/rtw89/coex.o \
+	drivers/rtw89/ps.o \
+	drivers/rtw89/chan.o \
+	drivers/rtw89/ser.o \
+	drivers/rtw89/acpi.o \
+	drivers/rtw89/util.o \
+	drivers/rtw89/usb.o \
+	drivers/rtw89/rtw8922a.o \
+	drivers/rtw89/rtw8922a_rfk.o \
+	drivers/rtw89/rtw8922au.o
+
 # Morse Micro MM8108 802.11ah, from Kismet's libmm8108, with mac80211 glue
 MM8108_OBJS = \
 	drivers/mm8108/mm8108.o \
@@ -270,7 +296,7 @@ SOAPY_MODDIR ?= $(shell $(PKG_CONFIG) --variable=libdir SoapySDR)/SoapySDR/modul
 GR_PREFIX = $(shell $(PKG_CONFIG) --variable=prefix gnuradio-runtime 2>/dev/null)
 GRC_BLOCKSDIR ?= $(if $(GR_PREFIX),$(GR_PREFIX)/share/gnuradio/grc/blocks)
 
-ALL_OBJS = $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) \
+ALL_OBJS = $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(RTW89_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) \
 	$(HWSIM_OBJS) tools/uwifi.o \
 	$(ICAP_OBJS) $(SDR_HOST_OBJS) sdr/mt7925_host.o $(SDR_RADIO_OBJS) tools/usbsdr.o $(SOAPY_OBJS)
 
@@ -301,7 +327,7 @@ FLAGS_STAMP = .build-flags
 $(shell echo '$(PICFLAG)' | cmp -s - $(FLAGS_STAMP) || echo '$(PICFLAG)' > $(FLAGS_STAMP))
 $(ALL_OBJS) $(MT7925_SDR): $(FLAGS_STAMP)
 
-$(LIB): $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) $(HWSIM_OBJS)
+$(LIB): $(KCOMPAT_OBJS) $(MAC80211_OBJS) $(MT76_OBJS) $(RTW88_OBJS) $(RTW89_OBJS) $(MM8108_OBJS) $(GLUE_OBJS) $(COMMON_OBJS) $(HWSIM_OBJS)
 	rm -f $@
 	$(AR) rcs $@ $^
 
@@ -370,12 +396,17 @@ drivers/rtw88/rtw8822bu.o: MODNAME = rtw8822bu
 drivers/rtw88/rtw8822cu.o: MODNAME = rtw8822cu
 drivers/rtw88/rtw8821cu.o: MODNAME = rtw8821cu
 drivers/rtw88/rtw8723du.o: MODNAME = rtw8723du
+drivers/rtw89/%.o: MODNAME = rtw89
+drivers/rtw89/rtw8922au.o: MODNAME = rtw8922au
 
 drivers/mt76/%.o: drivers/mt76/%.c
 	$(CC) $(DRV_CFLAGS) -c $< -o $@
 
 drivers/rtw88/%.o: drivers/rtw88/%.c
 	$(CC) $(RTW88_CFLAGS) -c $< -o $@
+
+drivers/rtw89/%.o: drivers/rtw89/%.c
+	$(CC) $(RTW89_CFLAGS) -c $< -o $@
 
 kcompat/upstream/%.o: kcompat/upstream/%.c
 	$(CC) $(KC_CFLAGS) -w -c $< -o $@

@@ -640,6 +640,13 @@ void ieee80211_rx_irqsafe(struct ieee80211_hw *hw, struct sk_buff *skb) {
     kc_mac80211_deliver(hw_to_local(hw), skb);
 }
 
+void ieee80211_rx_napi(struct ieee80211_hw *hw, struct ieee80211_sta *sta, struct sk_buff *skb,
+        struct napi_struct *napi) {
+    (void) sta;
+    (void) napi;
+    kc_mac80211_deliver(hw_to_local(hw), skb);
+}
+
 void ieee80211_rx_list(struct ieee80211_hw *hw, struct ieee80211_sta *sta, struct sk_buff *skb,
         struct list_head *list) {
     (void) sta;

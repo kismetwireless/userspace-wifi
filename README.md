@@ -164,6 +164,7 @@ name:
 | mt7925u | Linux v7.3-rc7 mt76 | MediaTek MT7925 (0e8d:7925, 0e8d:6639), Netgear A8500 (0846:9050) and A9000 (0846:9072) |
 | mt76x2u | Linux v7.3-rc7 mt76 | MediaTek MT7612U / MT7632U, such as the ALFA AWUS036ACM |
 | rtw88 USB | Linux v7.3-rc7 rtw88 plus two lwfinger/rtw88 fixes | RTL8812AU/8811AU, RTL8821AU, RTL8814AU, RTL8812BU/8822BU, RTL8812CU/8822CU, RTL8811CU/8821CU, RTL8723DU |
+| rtw89 USB | Linux v7.3-rc7 rtw89 | RTL8912AU/RTL8922AU (8922A, such as 0bda:8912); 6GHz needs a country (`-C US`), as the driver blocks it under the world domain. Runs at USB 2 unless switched: one open with `UWIFI_RTW89_USB3=1` set switches it to USB 3 and fails, and it then stays at 5Gbps until unplugged |
 | mm8108 | Kismet's libmm8108 (from morse_driver), with mac80211 glue | Morse Micro MM8108 802.11ah (325b:8100) |
 
 ## SDR

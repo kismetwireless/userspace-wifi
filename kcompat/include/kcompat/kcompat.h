@@ -30,6 +30,7 @@
 #include "net.h"
 #include "usb.h"
 #include "stubs.h"
+#include "platform.h"
 #include "netlink.h"
 
 #endif

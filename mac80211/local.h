@@ -66,6 +66,11 @@ struct ieee80211_local {
 
     /* ieee80211_restart_hw() */
     struct work_struct restart_work;
+    /* cfg80211 wiphy work; see wiphy_work.c */
+    struct workqueue_struct *wiphy_wq;
+    spinlock_t wiphy_work_lock;
+    struct list_head wiphy_work_list;
+    struct work_struct wiphy_work;
 
     struct list_head list;
 };
@@ -94,5 +99,7 @@ void kc_mac80211_deliver(struct ieee80211_local *local, struct sk_buff *skb);
 void kc_mac80211_tx_init(struct ieee80211_local *local);
 /* Drops held frames and clears stopped queues, once the driver is stopped */
 void kc_mac80211_tx_flush(struct ieee80211_local *local);
+int kc_wiphy_work_init(struct ieee80211_local *local, const char *name);
+void kc_wiphy_work_exit(struct ieee80211_local *local);
 
 #endif

@@ -787,6 +787,8 @@ static void LIBUSB_CALL kc_urb_complete(struct libusb_transfer *x) {
     urb->kc_in_cb = true;
     pthread_mutex_unlock(&urb->kc_lock);
 
+    usb_unanchor_urb(urb);
+
     if (urb->complete)
         urb->complete(urb);
 
@@ -918,4 +920,61 @@ void usb_unpoison_urb(struct urb *urb) {
     if (urb->kc_reject > 0)
         urb->kc_reject--;
     pthread_mutex_unlock(&urb->kc_lock);
+}
+
+void init_usb_anchor(struct usb_anchor *anchor) {
+    INIT_LIST_HEAD(&anchor->urb_list);
+    pthread_mutex_init(&anchor->lock, NULL);
+}
+
+void usb_anchor_urb(struct urb *urb, struct usb_anchor *anchor) {
+    usb_get_urb(urb);
+    pthread_mutex_lock(&anchor->lock);
+    list_add_tail(&urb->anchor_list, &anchor->urb_list);
+    urb->anchor = anchor;
+    pthread_mutex_unlock(&anchor->lock);
+}
+
+void usb_unanchor_urb(struct urb *urb) {
+    struct usb_anchor *anchor;
+
+    if (urb == NULL || (anchor = __atomic_load_n(&urb->anchor, __ATOMIC_ACQUIRE)) == NULL)
+        return;
+
+    pthread_mutex_lock(&anchor->lock);
+    /* Completion and the driver can race to unanchor; only one drops the reference */
+    bool mine = urb->anchor == anchor;
+    if (mine) {
+        list_del(&urb->anchor_list);
+        urb->anchor = NULL;
+    }
+    pthread_mutex_unlock(&anchor->lock);
+
+    if (mine)
+        usb_free_urb(urb);
+}
+
+void usb_kill_anchored_urbs(struct usb_anchor *anchor) {
+    pthread_mutex_lock(&anchor->lock);
+    while (!list_empty(&anchor->urb_list)) {
+        struct urb *urb = list_entry(anchor->urb_list.prev, struct urb, anchor_list);
+        usb_get_urb(urb);
+        pthread_mutex_unlock(&anchor->lock);
+
+        usb_kill_urb(urb);
+        /* Killing completes an outstanding URB, which unanchors it; one that wasn't
+         * submitted is taken off here */
+        usb_unanchor_urb(urb);
+        usb_free_urb(urb);
+
+        pthread_mutex_lock(&anchor->lock);
+    }
+    pthread_mutex_unlock(&anchor->lock);
+}
+
+bool usb_anchor_empty(struct usb_anchor *anchor) {
+    pthread_mutex_lock(&anchor->lock);
+    bool empty = list_empty(&anchor->urb_list);
+    pthread_mutex_unlock(&anchor->lock);
+    return empty;
 }

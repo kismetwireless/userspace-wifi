@@ -1,0 +1,9 @@
+Source: Linux kernel drivers/net/wireless/realtek/rtw89
+Tree:   https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+Commit: 0fcb05b72344f40806cbe810de8872f1698bf053 (same snapshot as ../rtw88 and ../mt76)
+License: GPL-2.0 OR BSD-3-Clause (see SPDX headers)
+
+Only the core, USB and 8922A chip files are copied (all headers are); PCI, debugfs,
+LEDs and WoWLAN are left out.
+
+Local changes are marked "kismet:".

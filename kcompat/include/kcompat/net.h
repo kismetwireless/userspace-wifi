@@ -173,6 +173,7 @@ static inline void netif_napi_add(struct net_device *dev, struct napi_struct *n,
 void napi_schedule(struct napi_struct *n);
 #define __napi_schedule napi_schedule
 #define napi_schedule_prep(n) 1
+#define napi_is_scheduled(n) test_bit(NAPI_STATE_SCHED, &(n)->state)
 static inline bool napi_complete_done(struct napi_struct *n, int work) { (void) n; (void) work; return true; }
 #define napi_complete(n) napi_complete_done(n, 0)
 #define napi_gro_receive(n, skb) do { (void) (n); kfree_skb(skb); } while (0)

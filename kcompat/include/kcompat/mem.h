@@ -128,6 +128,8 @@ struct device {
     struct device_driver *driver;
     struct device_node *of_node;
     struct fwnode_handle *fwnode;
+    /* sysfs attribute groups, never shown */
+    const struct attribute_group **groups;
     /* Managed allocations, released with the device */
     pthread_mutex_t devres_lock;
     struct kc_devres *devres;
@@ -175,5 +177,10 @@ void kc_dev_printk(const char *level, const struct device *dev, const char *fmt,
 #define dev_info_once dev_info
 #define dev_err_probe(dev, err, fmt, ...) ({ dev_err(dev, fmt, ##__VA_ARGS__); (err); })
 #define dev_WARN_ONCE(dev, cond, fmt, ...) WARN(cond, fmt, ##__VA_ARGS__)
+
+/* "kzalloc_objs(*ptr, n)": n zeroed objects */
+#define kzalloc_objs(obj, count, ...) kcalloc(count, sizeof(obj), GFP_KERNEL)
+#define kmalloc_objs(obj, count, ...) kmalloc_array(count, sizeof(obj), GFP_KERNEL)
+
 
 #endif
